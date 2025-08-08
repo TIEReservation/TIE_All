@@ -2,10 +2,11 @@ import streamlit as st
 import os
 from supabase import create_client, Client
 from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
+from online_reservation import show_online_reservations
 
 # Page config
 st.set_page_config(
-    page_title="TIE Direct Reservations",
+    page_title="TIE Reservations",
     page_icon="https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_Logo_Icon.png",
     layout="wide"
 )
@@ -23,7 +24,7 @@ def check_authentication():
         st.session_state.authenticated = False
         st.session_state.role = None
     if not st.session_state.authenticated:
-        st.title("🔐 TIE Direct Reservations Login")
+        st.title("🔐 TIE Reservations Login")
         st.write("Please select your role and enter the password to access the system.")
         role = st.selectbox("Select Role", ["Management", "ReservationTeam"])
         password = st.text_input("Enter password:", type="password")
@@ -60,10 +61,10 @@ def check_authentication():
 
 def main():
     check_authentication()
-    st.title("🏢 TIE Direct Reservations")
+    st.title("🏢 TIE Reservations")
     st.markdown("---")
     st.sidebar.title("Navigation")
-    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations"]
+    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations"]
     if st.session_state.role == "Management":
         page_options.append("Analytics")
     page = st.sidebar.selectbox("Choose a page", page_options)
@@ -74,6 +75,8 @@ def main():
         show_reservations()
     elif page == "Edit Reservations":
         show_edit_reservations()
+    elif page == "Online Reservations":
+        show_online_reservations()
     elif page == "Analytics" and st.session_state.role == "Management":
         show_analytics()
 
@@ -84,7 +87,7 @@ def main():
         st.session_state.reservations = []
         st.session_state.edit_mode = False
         st.session_state.edit_index = None
-        st.experimental_rerun()
+        st.rerun()
 
 if __name__ == "__main__":
     main()
