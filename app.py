@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from supabase import create_client, Client
-from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics
+from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
 
 # Page config
 st.set_page_config(
@@ -34,10 +34,9 @@ def check_authentication():
                 st.session_state.reservations = []
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
-                # Fetch reservations from the database
-                response = supabase.table("reservations").select("*").execute()
-                if response.data:
-                    st.session_state.reservations = response.data
+                # Fetch reservations using load_reservations_from_supabase
+                st.session_state.reservations = load_reservations_from_supabase()
+                if st.session_state.reservations:
                     st.success("✅ Management login successful! Reservations fetched.")
                 else:
                     st.warning("✅ Management login successful! No reservations found.")
@@ -48,10 +47,9 @@ def check_authentication():
                 st.session_state.reservations = []
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
-                # Fetch reservations from the database
-                response = supabase.table("reservations").select("*").execute()
-                if response.data:
-                    st.session_state.reservations = response.data
+                # Fetch reservations using load_reservations_from_supabase
+                st.session_state.reservations = load_reservations_from_supabase()
+                if st.session_state.reservations:
                     st.success("✅ Agent login successful! Reservations fetched.")
                 else:
                     st.warning("✅ Agent login successful! No reservations found.")
