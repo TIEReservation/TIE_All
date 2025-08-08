@@ -53,4 +53,45 @@ def check_authentication():
                 if st.session_state.reservations:
                     st.success("✅ Agent login successful! Reservations fetched.")
                 else:
-                    st.warning("✅ Agent login successful!
+                    st.warning("✅ Agent login successful! No reservations found.")
+                st.rerun()
+            else:
+                st.error("❌ Invalid password. Please try again.")
+        st.stop()
+
+def main():
+    check_authentication()
+    st.title("🏢 TIE Reservations")
+    st.markdown("---")
+    st.sidebar.title("Navigation")
+    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations"]
+    if st.session_state.role == "Management":
+        page_options.append("Analytics")
+    page = st.sidebar.selectbox("Choose a page", page_options)
+
+    try:
+        if page == "Direct Reservations":
+            show_new_reservation_form()
+        elif page == "View Reservations":
+            show_reservations()
+        elif page == "Edit Reservations":
+            show_edit_reservations()
+        elif page == "Online Reservations":
+            show_online_reservations()
+        elif page == "Analytics" and st.session_state.role == "Management":
+            show_analytics()
+    except Exception as e:
+        st.error(f"Error in {page}: {e}")
+        st.info("Please check the console for detailed error messages and verify API credentials.")
+
+    # Logout button
+    if st.sidebar.button("Log Out"):
+        st.session_state.authenticated = False
+        st.session_state.role = None
+        st.session_state.reservations = []
+        st.session_state.edit_mode = False
+        st.session_state.edit_index = None
+        st.rerun()
+
+if __name__ == "__main__":
+    main()
