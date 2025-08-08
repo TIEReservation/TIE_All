@@ -1,144 +1,327 @@
 import streamlit as st
-   import requests
-   import pandas as pd
-   from datetime import datetime
-   from supabase import create_client, Client
-   from config import STAYFLEXI_API_TOKEN, STAYFLEXI_API_BASE_URL, STAYFLEXI_EMAIL, SUPABASE_URL, SUPABASE_KEY
+  import pandas as pd
+  import requests
+  from datetime import datetime, date
+  from supabase import create_client, Client
+  import logging
+  from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-   # Initialize Supabase client
-   supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+  # Configure logging
+  logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+  logger = logging.getLogger(__name__)
 
-   def fetch_stayflexi_hotels():
-       """Fetch list of hotels from Stayflexi."""
-       url = f"{STAYFLEXI_API_BASE_URL}/common/hotel-detail?isGroupProperty=true&emailId={STAYFLEXI_EMAIL}"
-       headers = {
-           "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
-           "Content-Type": "application/json",
-           "Accept": "application/json",
-           "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36"
-       }
-       try:
-           response = requests.get(url, headers=headers)
-           response.raise_for_status()
-           hotels = response.json()
-           st.write(f"Raw hotel response: {hotels}")  # Debug: Log raw response
-           active_hotels = [(hotel["hotelId"], hotel["hotelName"]) for hotel in hotels if hotel.get("status") == "ACTIVE"]
-           if not active_hotels:
-               st.warning("No active hotels found in response.")
-           else:
-               st.write(f"Found {len(active_hotels)} active hotels: {active_hotels}")  # Debug
-           return active_hotels
-       except requests.RequestException as e:
-           st.error(f"Error fetching hotels: {e}\nResponse: {response.text if 'response' in locals() else 'No response'}")
-           return []
+  # Safe imports and initialization
+  try:
+      import requests
+      REQUESTS_AVAILABLE = True
+  except ImportError:
+      st.warning("Requests library not available")
+      REQUESTS_AVAILABLE = False
 
-   def fetch_stayflexi_bookings(hotel_id, start_date, end_date):
-       """Fetch bookings for a specific hotel from Stayflexi."""
-       url = f"{STAYFLEXI_API_BASE_URL}/core/api/v1/reservation/navigationGetRoomBookings?hotel_id={hotel_id}&hotelId={hotel_id}"
-       headers = {
-           "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
-           "Content-Type": "application/json;charset=UTF-8",
-           "Accept": "application/json, text/plain, */*",
-           "Origin": "https://app.stayflexi.com",
-           "Referer": "https://app.stayflexi.com/",
-           "sec-ch-ua": '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-           "sec-ch-ua-mobile": "?1",
-           "sec-ch-ua-platform": '"Android"',
-           "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36"
-       }
-       payload = {
-           "start_date": start_date,
-           "end_date": end_date,
-           "hotelId": str(hotel_id)
-       }
-       try:
-           response = requests.post(url, headers=headers, json=payload)
-           response.raise_for_status()
-           data = response.json()
-           bookings = data.get("allRoomReservations", {}).get("singleRoomReservations", [])
-           st.write(f"Raw bookings for hotel {hotel_id}: {bookings[:2]}")  # Debug: Log first two bookings
-           return bookings
-       except requests.RequestException as e:
-           st.error(f"Error fetching bookings for hotel {hotel_id}: {e}\nResponse: {response.text if 'response' in locals() else 'No response'}")
-           return []
+  try:
+      from supabase import create_client, Client
+      SUPABASE_AVAILABLE = True
+  except ImportError:
+      st.warning("Supabase library not available")
+      SUPABASE_AVAILABLE = False
 
-   def map_stayflexi_to_supabase(booking, hotel_id, hotel_name):
-       """Map Stayflexi booking to Supabase reservation format."""
-       return {
-           "reservation_id": booking.get("reservationId"),
-           "hotel_id": hotel_id,
-           "hotel_name": hotel_name,
-           "room_id": booking.get("roomId"),
-           "room_type": booking.get("roomTypeName", ""),
-           "guest_name": booking.get("username"),
-           "guest_email": booking.get("userEmail"),
-           "guest_contact": booking.get("userContact"),
-           "check_in": booking.get("checkin"),
-           "check_out": booking.get("checkout"),
-           "room_price": booking.get("roomPrice"),
-           "booking_source": booking.get("bookingSource", "Unknown"),
-           "reservation_status": booking.get("reservationStatus"),
-           "mob": "Online",  # Mark as online reservation
-           "created_at": datetime.now().isoformat(),
-           "group_booking": booking.get("groupBooking", False),
-           "balance_due": booking.get("balanceDue", 0.0)
-       }
+  # Initialize Supabase client
+  supabase = None
+  if SUPABASE_AVAILABLE:
+      try:
+          supabase = create_client(
+              st.secrets["supabase"]["url"],
+              st.secrets["supabase"]["key"]
+          )
+      except Exception as e:
+          st.error(f"Failed to initialize Supabase: {str(e)}")
 
-   def save_to_supabase(reservations):
-       """Save reservations to Supabase."""
-       try:
-           response = supabase.table("reservations").upsert(reservations, on_conflict=["reservation_id"]).execute()
-           st.success(f"Saved {len(response.data)} reservations to Supabase.")
-           return response.data
-       except Exception as e:
-           st.error(f"Error saving to Supabase: {e}")
-           return []
+  # Stayflexi API configuration
+  try:
+      from config import STAYFLEXI_API_TOKEN, STAYFLEXI_API_BASE_URL, STAYFLEXI_EMAIL
+  except ImportError:
+      try:
+          STAYFLEXI_API_TOKEN = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_TOKEN", "")
+          STAYFLEXI_API_BASE_URL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_BASE_URL", "")
+          STAYFLEXI_EMAIL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_EMAIL", "")
+      except Exception as e:
+          st.warning(f"Could not load API configuration: {str(e)}")
 
-   def show_online_reservations():
-       """Display online reservations in Streamlit."""
-       st.header("Online Reservations")
-       hotels = fetch_stayflexi_hotels()
-       if not hotels:
-           st.warning("No hotels found or error fetching hotels.")
-           return
+  def generate_booking_id():
+      """Generate a unique booking ID."""
+      try:
+          today = datetime.now().strftime('%Y%m%d')
+          response = supabase.table("reservations").select("booking_id").like("booking_id", f"TIE{today}%").execute()
+          existing_ids = [record["booking_id"] for record in response.data]
+          sequence = 1
+          while f"TIE{today}{sequence:03d}" in existing_ids:
+              sequence += 1
+          return f"TIE{today}{sequence:03d}"
+      except Exception as e:
+          st.error(f"Error generating booking ID: {str(e)}")
+          logger.error(f"Error generating booking ID: {str(e)}")
+          return None
 
-       # Date range selection
-       col1, col2 = st.columns(2)
-       with col1:
-           start_date = st.date_input("Start Date", value=datetime.now())
-       with col2:
-           end_date = st.date_input("End Date", value=datetime.now())
-       start_date_str = start_date.strftime("%Y-%m-%d")
-       end_date_str = end_date.strftime("%Y-%m-%d")
+  @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type(requests.RequestException))
+  def fetch_stayflexi_properties():
+      """Fetch list of properties from Stayflexi API."""
+      if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
+          st.error("Cannot fetch properties: Missing requests library or API configuration")
+          logger.error("Cannot fetch properties: Missing requests library or API configuration")
+          return None
 
-       all_reservations = []
-       for hotel_id, hotel_name in hotels:
-           st.subheader(f"Reservations for {hotel_name} (ID: {hotel_id})")
-           bookings = fetch_stayflexi_bookings(hotel_id, start_date_str, end_date_str)
-           if bookings:
-               hotel_reservations = []
-               for room in bookings:
-                   for res in room.get("resInfoList", []):
-                       if res.get("reservationStatus") == "CONFIRMED":  # Exclude BLOCKED
-                           mapped_res = map_stayflexi_to_supabase(res, hotel_id, hotel_name)
-                           hotel_reservations.append(mapped_res)
-               if hotel_reservations:
-                   # Save to Supabase
-                   saved_res = save_to_supabase(hotel_reservations)
-                   all_reservations.extend(saved_res)
-                   # Display in table
-                   df = pd.DataFrame(hotel_reservations)
-                   st.dataframe(df[["reservation_id", "guest_name", "check_in", "check_out", "room_price", "booking_source"]])
-               else:
-                   st.info(f"No confirmed reservations for {hotel_name}.")
-           else:
-               st.info(f"No bookings found for {hotel_name}.")
+      try:
+          headers = {
+              "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
+              "Content-Type": "application/json"
+          }
+          endpoint = f"{STAYFLEXI_API_BASE_URL}/common/hotel-detail"
+          params = {
+              "isGroupProperty": "true",
+              "emailId": STAYFLEXI_EMAIL
+          }
+          logger.info(f"Fetching properties from {endpoint} with params {params}")
+          response = requests.get(endpoint, headers=headers, params=params)
+          response.raise_for_status()
+          properties = [hotel for hotel in response.json() if hotel.get("status") == "ACTIVE"]
+          logger.info(f"Fetched {len(properties)} active properties")
+          return properties
+      except requests.RequestException as e:
+          st.error(f"Failed to fetch Stayflexi properties: {str(e)}")
+          logger.error(f"Failed to fetch Stayflexi properties: {str(e)}")
+          raise
 
-       # Display all reservations across properties
-       if all_reservations:
-           st.subheader("All Online Reservations")
-           df_all = pd.DataFrame(all_reservations)
-           st.dataframe(df_all[["hotel_name", "reservation_id", "guest_name", "check_in", "check_out", "room_price", "booking_source"]])
+  @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type(requests.RequestException))
+  def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
+      """
+      Fetch bookings from Stayflexi API for all active properties.
+      Args:
+          start_date: YYYY-MM-DD format
+          end_date: YYYY-MM-DD format (optional, defaults to start_date)
+      Returns:
+          List of bookings with property details
+      """
+      if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
+          st.error("Cannot fetch bookings: Missing requests library or API configuration")
+          logger.error("Cannot fetch bookings: Missing requests library or API configuration")
+          return None
 
-   if __name__ == "__main__":
-       show_online_reservations()
+      properties = fetch_stayflexi_properties()
+      if not properties:
+          return None
+
+      all_bookings = []
+      try:
+          headers = {
+              "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
+              "Content-Type": "application/json"
+          }
+          for property in properties:
+              hotel_id = property.get("hotelId")
+              hotel_name = property.get("hotelName")
+              endpoint = f"{STAYFLEXI_API_BASE_URL}/api/v2/reports/generateDashDataLite/"
+              params = {
+                  "date": start_date,
+                  "hotelId": hotel_id
+              }
+              if end_date:
+                  params["end_date"] = end_date
+
+              logger.info(f"Fetching bookings for hotel {hotel_id} from {endpoint} with params {params}")
+              try:
+                  response = requests.get(endpoint, headers=headers, params=params)
+                  response.raise_for_status()
+                  booking_data = response.json()
+                  for status in ["CHECKINS", "NEW_BOOKINGS", "CANCELLED", "ON_HOLD", "NO_SHOW"]:
+                      bookings = booking_data.get(status, [])
+                      for booking in bookings:
+                          booking["hotel_id"] = hotel_id
+                          booking["hotel_name"] = hotel_name
+                          all_bookings.append(booking)
+                  logger.info(f"Fetched {len(bookings)} bookings for hotel {hotel_id}")
+              except requests.RequestException as e:
+                  st.warning(f"Failed to fetch bookings for hotel {hotel_id}: {str(e)}")
+                  logger.error(f"Failed to fetch bookings for hotel {hotel_id}: {str(e)}")
+                  continue  # Skip to next hotel
+          logger.info(f"Total bookings fetched: {len(all_bookings)}")
+          return all_bookings
+      except Exception as e:
+          st.error(f"Unexpected error fetching bookings: {str(e)}")
+          logger.error(f"Unexpected error fetching bookings: {str(e)}")
+          return None
+
+  def map_stayflexi_to_supabase(booking):
+      """
+      Map Stayflexi booking data to Supabase schema.
+      """
+      try:
+          return {
+              "booking_id": booking.get("reservation_id", generate_booking_id()),
+              "property_name": booking.get("hotel_name", ""),
+              "booking_date": booking.get("booking_made", datetime.now().strftime("%Y-%m-%d")),
+              "booking_source": booking.get("booking_source", "Stayflexi"),
+              "guest_name": booking.get("user_name", ""),
+              "guest_phone": booking.get("user_phone", ""),
+              "check_in": booking.get("check_in", ""),
+              "check_out": booking.get("check_out", ""),
+              "total_amount": float(booking.get("booking_amount", 0.0)),
+              "advance": float(booking.get("balance_due", 0.0)),
+              "no_of_adults": int(booking.get("adults", 0)),
+              "no_of_children": int(booking.get("children", 0)),
+              "no_of_infants": 0,
+              "total_pax": int(booking.get("adults", 0)) + int(booking.get("children", 0)),
+              "room_no": booking.get("room_ids", ""),
+              "amt_without_tax": float(booking.get("booking_amount", 0.0)) - float(booking.get("fee_amount", 0.0)),
+              "tax": float(booking.get("fee_amount", 0.0)),
+              "room_type": booking.get("room_type", ""),
+              "breakfast": booking.get("rate_plan_name", "EP"),
+              "status": booking.get("reservation_status", "PENDING").upper(),
+              "submitted_by": "Stayflexi API",
+              "remarks": "",
+              "mob": "Online"
+          }
+      except Exception as e:
+          st.error(f"Error mapping booking to Supabase schema: {str(e)}")
+          logger.error(f"Error mapping booking to Supabase schema: {str(e)}")
+          return None
+
+  def save_to_supabase(booking):
+      """Save a booking to Supabase reservations table."""
+      try:
+          response = supabase.table("reservations").select("booking_id").eq("booking_id", booking["booking_id"]).execute()
+          if response.data:
+              logger.info(f"Booking {booking['booking_id']} already exists in Supabase")
+              return False
+          response = supabase.table("reservations").insert(booking).execute()
+          if response.data:
+              logger.info(f"Successfully saved booking {booking['booking_id']} to Supabase")
+              return True
+          else:
+              st.error("Failed to save booking to Supabase")
+              logger.error("Failed to save booking to Supabase")
+              return False
+      except Exception as e:
+          st.error(f"Error saving to Supabase: {str(e)}")
+          logger.error(f"Error saving to Supabase: {str(e)}")
+          return False
+
+  def show_online_reservations():
+      """
+      Display and sync online reservations from Stayflexi.
+      """
+      st.header("📡 Online Reservations")
+
+      # Show system status
+      with st.expander("System Status", expanded=False):
+          st.write(f"Requests Available: {'✅' if REQUESTS_AVAILABLE else '❌'}")
+          st.write(f"Supabase Available: {'✅' if SUPABASE_AVAILABLE else '❌'}")
+          st.write(f"Supabase Connected: {'✅' if supabase else '❌'}")
+          st.write(f"API Token Configured: {'✅' if STAYFLEXI_API_TOKEN else '❌'}")
+          st.write(f"API URL Configured: {'✅' if STAYFLEXI_API_BASE_URL else '❌'}")
+          st.write(f"API Email Configured: {'✅' if STAYFLEXI_EMAIL else '❌'}")
+
+      # Input for date selection and sync
+      col1, col2 = st.columns([2, 1])
+      with col1:
+          sync_date = st.date_input("Select Date to Sync/View", value=date.today(), key="online_reservations_date")
+      with col2:
+          sync_button = st.button("Sync Stayflexi Bookings")
+
+      if sync_date:
+          formatted_date = sync_date.strftime("%Y-%m-%d")
+          st.info(f"Selected date: {formatted_date}")
+
+          # Fetch and sync bookings if button clicked
+          if sync_button:
+              if not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
+                  st.error("Cannot sync bookings: Missing required libraries or API configuration")
+              else:
+                  try:
+                      bookings = fetch_stayflexi_bookings(formatted_date)
+                      if bookings:
+                          mapped_bookings = [map_stayflexi_to_supabase(booking) for booking in bookings]
+                          mapped_bookings = [b for b in mapped_bookings if b]
+                          success_count = 0
+                          for booking in mapped_bookings:
+                              if save_to_supabase(booking):
+                                  success_count += 1
+                          if success_count > 0:
+                              st.success(f"Successfully synced {success_count} bookings to Supabase")
+                          else:
+                              st.warning("No new bookings synced")
+                      else:
+                          st.warning("No bookings fetched from Stayflexi")
+                  except Exception as e:
+                      st.error(f"Error during sync: {str(e)}")
+                      logger.error(f"Error during sync: {str(e)}")
+
+          # Load and display bookings from Supabase
+          try:
+              response = supabase.table("reservations").select("*").eq("mob", "Online").eq("check_in", formatted_date).execute()
+              if response.data:
+                  df = pd.DataFrame([
+                      {
+                          "Booking ID": record["booking_id"],
+                          "Property Name": record["property_name"],
+                          "Guest Name": record["guest_name"],
+                          "Guest Phone": record["guest_phone"],
+                          "Check In": pd.to_datetime(record["check_in"]) if record["check_in"] else None,
+                          "Check Out": pd.to_datetime(record["check_out"]) if record["check_out"] else None,
+                          "Total Amount": record["total_amount"],
+                          "Room Type": record["room_type"],
+                          "Status": record["status"],
+                          "Booking Source": record["booking_source"]
+                      }
+                      for record in response.data
+                  ])
+              else:
+                  df = pd.DataFrame()
+          except Exception as e:
+              st.error(f"Error loading reservations: {str(e)}")
+              logger.error(f"Error loading reservations: {str(e)}")
+              df = pd.DataFrame()
+
+          # Display bookings by property
+          if not df.empty:
+              properties = df["Property Name"].unique()
+              tabs = st.tabs(properties)
+              for i, property_name in enumerate(properties):
+                  with tabs[i]:
+                      property_df = df[df["Property Name"] == property_name]
+                      st.subheader(f"{property_name}")
+                      status_tabs = st.tabs(["Check-ins", "New Bookings", "Cancelled", "On Hold", "No Show"])
+                      with status_tabs[0]:
+                          checkin_df = property_df[property_df["Status"] == "CONFIRMED"]
+                          if not checkin_df.empty:
+                              st.dataframe(checkin_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                          else:
+                              st.write("No check-ins found.")
+                      with status_tabs[1]:
+                          new_df = property_df[property_df["Status"] == "NEW_BOOKINGS"]
+                          if not new_df.empty:
+                              st.dataframe(new_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                          else:
+                              st.write("No new bookings found.")
+                      with status_tabs[2]:
+                          cancelled_df = property_df[property_df["Status"] == "CANCELLED"]
+                          if not cancelled_df.empty:
+                              st.dataframe(cancelled_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                          else:
+                              st.write("No cancelled bookings found.")
+                      with status_tabs[3]:
+                          on_hold_df = property_df[property_df["Status"] == "ON_HOLD"]
+                          if not on_hold_df.empty:
+                              st.dataframe(on_hold_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                          else:
+                              st.write("No on-hold bookings found.")
+                      with status_tabs[4]:
+                          no_show_df = property_df[property_df["Status"] == "NO_SHOW"]
+                          if not no_show_df.empty:
+                              st.dataframe(no_show_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                          else:
+                              st.write("No no-show bookings found.")
+          else:
+              st.info("No online bookings found for the selected date.")
+
+  if __name__ == "__main__":
+      show_online_reservations()
