@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, date
 from supabase import create_client, Client
+from urllib.parse import urlencode
 
 # Safe imports and initialization
 try:
@@ -32,11 +33,12 @@ if SUPABASE_AVAILABLE:
 
 # Stayflexi API configuration
 try:
-    from config import STAYFLEXI_API_TOKEN, STAYFLEXI_API_BASE_URL
+    from config import STAYFLEXI_API_TOKEN, STAYFLEXI_API_BASE_URL, STAYFLEXI_EMAIL
 except ImportError:
     try:
         STAYFLEXI_API_TOKEN = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_TOKEN", "")
         STAYFLEXI_API_BASE_URL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_BASE_URL", "")
+        STAYFLEXI_EMAIL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_EMAIL", "")
     except Exception as e:
         st.warning(f"Could not load API configuration: {str(e)}")
 
@@ -54,17 +56,10 @@ def generate_booking_id():
         st.error(f"Error generating booking ID: {str(e)}")
         return None
 
-def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
-    """
-    Fetch bookings from Stayflexi API for the given date range.
-    Args:
-        start_date: YYYY-MM-DD format
-        end_date: YYYY-MM-DD format (optional, defaults to start_date)
-    Returns:
-        List of bookings or None if failed
-    """
-    if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
-        st.error("Cannot fetch bookings: Missing requests library or API configuration")
+def fetch_stayflexi_properties():
+    """Fetch list of properties from Stayflexi API."""
+    if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
+        st.error("Cannot fetch properties: Missing requests library or API configuration")
         return None
 
     try:
@@ -72,14 +67,65 @@ def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
             "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
             "Content-Type": "application/json"
         }
-        endpoint = f"{STAYFLEXI_API_BASE_URL}/bookings"
-        params = {"date": start_date}
-        if end_date:
-            params["end_date"] = end_date
-
+        endpoint = f"{STAYFLEXI_API_BASE_URL}/common/hotel-detail"
+        params = {
+            "isGroupProperty": "true",
+            "emailId": STAYFLEXI_EMAIL
+        }
         response = requests.get(endpoint, headers=headers, params=params)
         response.raise_for_status()
-        return response.json().get("data", [])
+        return [hotel for hotel in response.json() if hotel.get("status") == "ACTIVE"]
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch Stayflexi properties: {str(e)}")
+        return None
+
+def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
+    """
+    Fetch bookings from Stayflexi API for all active properties.
+    Args:
+        start_date: YYYY-MM-DD format
+        end_date: YYYY-MM-DD format (optional, defaults to start_date)
+    Returns:
+        List of bookings with property details
+    """
+    if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
+        st.error("Cannot fetch bookings: Missing requests library or API configuration")
+        return None
+
+    properties = fetch_stayflexi_properties()
+    if not properties:
+        return None
+
+    all_bookings = []
+    try:
+        headers = {
+            "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        for property in properties:
+            hotel_id = property.get("hotelId")
+            hotel_name = property.get("hotelName")
+            endpoint = f"{STAYFLEXI_API_BASE_URL}/api/v2/reports/generateDashDataLite/"
+            params = {
+                "date": start_date,
+                "is_today": "true",
+                "hotel_id": hotel_id,
+                "hotelId": hotel_id
+            }
+            if end_date:
+                params["end_date"] = end_date
+
+            response = requests.get(endpoint, headers=headers, params=params)
+            response.raise_for_status()
+            booking_data = response.json()
+            # Combine all booking statuses (CHECKINS, NEW_BOOKINGS, CANCELLED, etc.)
+            for status in ["CHECKINS", "NEW_BOOKINGS", "CANCELLED", "ON_HOLD", "NO_SHOW"]:
+                bookings = booking_data.get(status, [])
+                for booking in bookings:
+                    booking["hotel_id"] = hotel_id
+                    booking["hotel_name"] = hotel_name
+                    all_bookings.append(booking)
+        return all_bookings
     except requests.RequestException as e:
         st.error(f"Failed to fetch Stayflexi bookings: {str(e)}")
         return None
@@ -87,32 +133,31 @@ def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
 def map_stayflexi_to_supabase(booking):
     """
     Map Stayflexi booking data to Supabase schema.
-    Adjust field mappings based on actual Stayflexi API response.
     """
     try:
         return {
             "booking_id": booking.get("reservation_id", generate_booking_id()),
             "property_name": booking.get("hotel_name", ""),
-            "booking_date": booking.get("booking_date", datetime.now().strftime("%Y-%m-%d")),
-            "booking_source": booking.get("source", "Stayflexi"),
-            "guest_name": booking.get("guest_name", ""),
-            "guest_phone": booking.get("guest_phone", ""),
-            "check_in": booking.get("check_in_date", ""),
-            "check_out": booking.get("check_out_date", ""),
-            "total_amount": float(booking.get("total_amount", 0.0)),
-            "advance": float(booking.get("advance_paid", 0.0)),
+            "booking_date": booking.get("booking_made", datetime.now().strftime("%Y-%m-%d")),
+            "booking_source": booking.get("booking_source", "Stayflexi"),
+            "guest_name": booking.get("user_name", ""),
+            "guest_phone": booking.get("user_phone", ""),
+            "check_in": booking.get("check_in", ""),
+            "check_out": booking.get("check_out", ""),
+            "total_amount": float(booking.get("booking_amount", 0.0)),
+            "advance": float(booking.get("balance_due", 0.0)),
             "no_of_adults": int(booking.get("adults", 0)),
             "no_of_children": int(booking.get("children", 0)),
-            "no_of_infants": int(booking.get("infants", 0)),
-            "total_pax": int(booking.get("adults", 0)) + int(booking.get("children", 0)) + int(booking.get("infants", 0)),
-            "room_no": booking.get("room_number", ""),
-            "amt_without_tax": float(booking.get("amount_excluding_tax", 0.0)),
-            "tax": float(booking.get("tax_amount", 0.0)),
+            "no_of_infants": 0,  # Stayflexi data doesn't provide infants
+            "total_pax": int(booking.get("adults", 0)) + int(booking.get("children", 0)),
+            "room_no": booking.get("room_ids", ""),
+            "amt_without_tax": float(booking.get("booking_amount", 0.0)) - float(booking.get("fee_amount", 0.0)),
+            "tax": float(booking.get("fee_amount", 0.0)),
             "room_type": booking.get("room_type", ""),
-            "breakfast": booking.get("meal_plan", "EP"),
-            "status": booking.get("status", "Pending").upper(),
+            "breakfast": booking.get("rate_plan_name", "EP"),
+            "status": booking.get("reservation_status", "PENDING").upper(),
             "submitted_by": "Stayflexi API",
-            "remarks": booking.get("notes", ""),
+            "remarks": "",
             "mob": "Online"
         }
     except Exception as e:
@@ -149,11 +194,12 @@ def show_online_reservations():
         st.write(f"Supabase Connected: {'✅' if supabase else '❌'}")
         st.write(f"API Token Configured: {'✅' if STAYFLEXI_API_TOKEN else '❌'}")
         st.write(f"API URL Configured: {'✅' if STAYFLEXI_API_BASE_URL else '❌'}")
+        st.write(f"API Email Configured: {'✅' if STAYFLEXI_EMAIL else '❌'}")
 
     # Input for date selection and sync
     col1, col2 = st.columns([2, 1])
     with col1:
-        sync_date = st.date_input("Select Date to Sync/View", value=datetime.today(), key="online_reservations_date")
+        sync_date = st.date_input("Select Date to Sync/View", value=date.today(), key="online_reservations_date")
     with col2:
         sync_button = st.button("Sync Stayflexi Bookings")
 
@@ -163,7 +209,7 @@ def show_online_reservations():
 
         # Fetch and sync bookings if button clicked
         if sync_button:
-            if not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
+            if not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
                 st.error("Cannot sync bookings: Missing required libraries or API configuration")
             else:
                 bookings = fetch_stayflexi_bookings(formatted_date)
@@ -206,44 +252,45 @@ def show_online_reservations():
             st.error(f"Error loading reservations: {str(e)}")
             df = pd.DataFrame()
 
-        # Display sample data if no real data
-        if df.empty and (not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL):
-            st.warning("Missing required libraries or API configuration. Showing sample data:")
-            sample_data = {
-                "Booking ID": ["RES001", "RES002", "RES003"],
-                "Property Name": ["Eden Beach Resort", "La Paradise Luxury", "Le Poshe Suite"],
-                "Guest Name": ["John Doe", "Jane Smith", "Bob Johnson"],
-                "Guest Phone": ["+1234567890", "+0987654321", "+1122334455"],
-                "Check In": [formatted_date, formatted_date, formatted_date],
-                "Check Out": [(pd.to_datetime(formatted_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"), formatted_date, formatted_date],
-                "Total Amount": [10000.0, 15000.0, 20000.0],
-                "Room Type": ["Standard", "Deluxe", "Suite"],
-                "Status": ["CHECKINS", "NEW_BOOKINGS", "CANCELLED"],
-                "Booking Source": ["Booking.com", "Expedia", "Stayflexi"]
-            }
-            df = pd.DataFrame(sample_data)
-
-        # Display bookings by status
+        # Display bookings by property
         if not df.empty:
-            tabs = st.tabs(["Check-ins", "New Bookings", "Cancelled"])
-            with tabs[0]:
-                checkin_df = df[df["Status"] == "CHECKINS"]
-                if not checkin_df.empty:
-                    st.dataframe(checkin_df[["Booking ID", "Guest Name", "Property Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                else:
-                    st.write("No check-ins found.")
-            with tabs[1]:
-                new_df = df[df["Status"] == "NEW_BOOKINGS"]
-                if not new_df.empty:
-                    st.dataframe(new_df[["Booking ID", "Guest Name", "Property Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                else:
-                    st.write("No new bookings found.")
-            with tabs[2]:
-                cancelled_df = df[df["Status"] == "CANCELLED"]
-                if not cancelled_df.empty:
-                    st.dataframe(cancelled_df[["Booking ID", "Guest Name", "Property Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                else:
-                    st.write("No cancelled bookings found.")
+            properties = df["Property Name"].unique()
+            tabs = st.tabs(properties)
+            for i, property_name in enumerate(properties):
+                with tabs[i]:
+                    property_df = df[df["Property Name"] == property_name]
+                    st.subheader(f"{property_name}")
+                    status_tabs = st.tabs(["Check-ins", "New Bookings", "Cancelled", "On Hold", "No Show"])
+                    with status_tabs[0]:
+                        checkin_df = property_df[property_df["Status"] == "CONFIRMED"]
+                        if not checkin_df.empty:
+                            st.dataframe(checkin_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                        else:
+                            st.write("No check-ins found.")
+                    with status_tabs[1]:
+                        new_df = property_df[property_df["Status"] == "NEW_BOOKINGS"]
+                        if not new_df.empty:
+                            st.dataframe(new_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                        else:
+                            st.write("No new bookings found.")
+                    with status_tabs[2]:
+                        cancelled_df = property_df[property_df["Status"] == "CANCELLED"]
+                        if not cancelled_df.empty:
+                            st.dataframe(cancelled_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                        else:
+                            st.write("No cancelled bookings found.")
+                    with status_tabs[3]:
+                        on_hold_df = property_df[property_df["Status"] == "ON_HOLD"]
+                        if not on_hold_df.empty:
+                            st.dataframe(on_hold_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                        else:
+                            st.write("No on-hold bookings found.")
+                    with status_tabs[4]:
+                        no_show_df = property_df[property_df["Status"] == "NO_SHOW"]
+                        if not no_show_df.empty:
+                            st.dataframe(no_show_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
+                        else:
+                            st.write("No no-show bookings found.")
         else:
             st.info("No online bookings found for the selected date.")
 
