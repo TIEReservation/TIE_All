@@ -69,20 +69,16 @@ def main():
         page_options.append("Analytics")
     page = st.sidebar.selectbox("Choose a page", page_options)
 
-    try:
-        if page == "Direct Reservations":
-            show_new_reservation_form()
-        elif page == "View Reservations":
-            show_reservations()
-        elif page == "Edit Reservations":
-            show_edit_reservations()
-        elif page == "Online Reservations":
-            show_online_reservations()
-        elif page == "Analytics" and st.session_state.role == "Management":
-            show_analytics()
-    except Exception as e:
-        st.error(f"Error in {page}: {e}")
-        st.info("Please check the console for detailed error messages and verify API credentials.")
+    if page == "Direct Reservations":
+        show_new_reservation_form()
+    elif page == "View Reservations":
+        show_reservations()
+    elif page == "Edit Reservations":
+        show_edit_reservations()
+    elif page == "Online Reservations":
+        show_online_reservations()
+    elif page == "Analytics" and st.session_state.role == "Management":
+        show_analytics()
 
     # Logout button
     if st.sidebar.button("Log Out"):
@@ -94,4 +90,6 @@ def main():
         st.rerun()
 
 if __name__ == "__main__":
-    main()
+    main() 
+
+this is the previous app.py make the new app.py as a full code.
