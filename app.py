@@ -63,24 +63,32 @@ def main():
     check_authentication()
     st.title("🏢 TIE Reservations")
     st.markdown("---")
-    st.sidebar.title("Navigation")
-    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations"]
+
+    # Use tabs for navigation instead of sidebar for a cleaner UI
+    tab_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations"]
     if st.session_state.role == "Management":
-        page_options.append("Analytics")
-    page = st.sidebar.selectbox("Choose a page", page_options)
+        tab_options.append("Analytics")
+    tabs = st.tabs(tab_options)
 
-    if page == "Direct Reservations":
+    # Map tabs to functions
+    with tabs[tab_options.index("Direct Reservations")]:
         show_new_reservation_form()
-    elif page == "View Reservations":
+    with tabs[tab_options.index("View Reservations")]:
         show_reservations()
-    elif page == "Edit Reservations":
+    with tabs[tab_options.index("Edit Reservations")]:
         show_edit_reservations()
-    elif page == "Online Reservations":
-        show_online_reservations()
-    elif page == "Analytics" and st.session_state.role == "Management":
-        show_analytics()
+    with tabs[tab_options.index("Online Reservations")]:
+        try:
+            show_online_reservations()
+        except Exception as e:
+            st.error(f"Error in Online Reservations: {e}")
+            st.info("Please check the console for detailed error messages and verify Stayflexi API credentials.")
+    if st.session_state.role == "Management" and "Analytics" in tab_options:
+        with tabs[tab_options.index("Analytics")]:
+            show_analytics()
 
-    # Logout button
+    # Logout button in sidebar
+    st.sidebar.title("Navigation")
     if st.sidebar.button("Log Out"):
         st.session_state.authenticated = False
         st.session_state.role = None
