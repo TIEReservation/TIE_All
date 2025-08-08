@@ -4,6 +4,12 @@ import requests
 from datetime import datetime, date
 from supabase import create_client, Client
 from urllib.parse import urlencode
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Safe imports and initialization
 try:
@@ -54,12 +60,15 @@ def generate_booking_id():
         return f"TIE{today}{sequence:03d}"
     except Exception as e:
         st.error(f"Error generating booking ID: {str(e)}")
+        logger.error(f"Error generating booking ID: {str(e)}")
         return None
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type(requests.RequestException))
 def fetch_stayflexi_properties():
     """Fetch list of properties from Stayflexi API."""
     if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
         st.error("Cannot fetch properties: Missing requests library or API configuration")
+        logger.error("Cannot fetch properties: Missing requests library or API configuration")
         return None
 
     try:
@@ -72,13 +81,18 @@ def fetch_stayflexi_properties():
             "isGroupProperty": "true",
             "emailId": STAYFLEXI_EMAIL
         }
+        logger.info(f"Fetching properties from {endpoint} with params {params}")
         response = requests.get(endpoint, headers=headers, params=params)
         response.raise_for_status()
-        return [hotel for hotel in response.json() if hotel.get("status") == "ACTIVE"]
+        properties = [hotel for hotel in response.json() if hotel.get("status") == "ACTIVE"]
+        logger.info(f"Fetched {len(properties)} active properties")
+        return properties
     except requests.RequestException as e:
         st.error(f"Failed to fetch Stayflexi properties: {str(e)}")
-        return None
+        logger.error(f"Failed to fetch Stayflexi properties: {str(e)}")
+        raise
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type(requests.RequestException))
 def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
     """
     Fetch bookings from Stayflexi API for all active properties.
@@ -90,6 +104,7 @@ def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
     """
     if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
         st.error("Cannot fetch bookings: Missing requests library or API configuration")
+        logger.error("Cannot fetch bookings: Missing requests library or API configuration")
         return None
 
     properties = fetch_stayflexi_properties()
@@ -108,27 +123,30 @@ def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
             endpoint = f"{STAYFLEXI_API_BASE_URL}/api/v2/reports/generateDashDataLite/"
             params = {
                 "date": start_date,
-                "is_today": "true",
                 "hotel_id": hotel_id,
                 "hotelId": hotel_id
             }
             if end_date:
                 params["end_date"] = end_date
 
+            logger.info(f"Fetching bookings for hotel {hotel_id} from {endpoint} with params {params}")
             response = requests.get(endpoint, headers=headers, params=params)
             response.raise_for_status()
             booking_data = response.json()
-            # Combine all booking statuses (CHECKINS, NEW_BOOKINGS, CANCELLED, etc.)
+            # Combine all booking statuses
             for status in ["CHECKINS", "NEW_BOOKINGS", "CANCELLED", "ON_HOLD", "NO_SHOW"]:
                 bookings = booking_data.get(status, [])
                 for booking in bookings:
                     booking["hotel_id"] = hotel_id
                     booking["hotel_name"] = hotel_name
                     all_bookings.append(booking)
+            logger.info(f"Fetched {len(bookings)} bookings for hotel {hotel_id}")
+        logger.info(f"Total bookings fetched: {len(all_bookings)}")
         return all_bookings
     except requests.RequestException as e:
         st.error(f"Failed to fetch Stayflexi bookings: {str(e)}")
-        return None
+        logger.error(f"Failed to fetch Stayflexi bookings: {str(e)}")
+        raise
 
 def map_stayflexi_to_supabase(booking):
     """
@@ -148,7 +166,7 @@ def map_stayflexi_to_supabase(booking):
             "advance": float(booking.get("balance_due", 0.0)),
             "no_of_adults": int(booking.get("adults", 0)),
             "no_of_children": int(booking.get("children", 0)),
-            "no_of_infants": 0,  # Stayflexi data doesn't provide infants
+            "no_of_infants": 0,
             "total_pax": int(booking.get("adults", 0)) + int(booking.get("children", 0)),
             "room_no": booking.get("room_ids", ""),
             "amt_without_tax": float(booking.get("booking_amount", 0.0)) - float(booking.get("fee_amount", 0.0)),
@@ -162,23 +180,27 @@ def map_stayflexi_to_supabase(booking):
         }
     except Exception as e:
         st.error(f"Error mapping booking to Supabase schema: {str(e)}")
+        logger.error(f"Error mapping booking to Supabase schema: {str(e)}")
         return None
 
 def save_to_supabase(booking):
     """Save a booking to Supabase reservations table."""
     try:
-        # Check for duplicate booking_id
         response = supabase.table("reservations").select("booking_id").eq("booking_id", booking["booking_id"]).execute()
         if response.data:
-            return False  # Booking already exists
+            logger.info(f"Booking {booking['booking_id']} already exists in Supabase")
+            return False
         response = supabase.table("reservations").insert(booking).execute()
         if response.data:
+            logger.info(f"Successfully saved booking {booking['booking_id']} to Supabase")
             return True
         else:
             st.error("Failed to save booking to Supabase")
+            logger.error("Failed to save booking to Supabase")
             return False
     except Exception as e:
         st.error(f"Error saving to Supabase: {str(e)}")
+        logger.error(f"Error saving to Supabase: {str(e)}")
         return False
 
 def show_online_reservations():
@@ -212,20 +234,24 @@ def show_online_reservations():
             if not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
                 st.error("Cannot sync bookings: Missing required libraries or API configuration")
             else:
-                bookings = fetch_stayflexi_bookings(formatted_date)
-                if bookings:
-                    mapped_bookings = [map_stayflexi_to_supabase(booking) for booking in bookings]
-                    mapped_bookings = [b for b in mapped_bookings if b]  # Filter out None
-                    success_count = 0
-                    for booking in mapped_bookings:
-                        if save_to_supabase(booking):
-                            success_count += 1
-                    if success_count > 0:
-                        st.success(f"Successfully synced {success_count} bookings to Supabase")
+                try:
+                    bookings = fetch_stayflexi_bookings(formatted_date)
+                    if bookings:
+                        mapped_bookings = [map_stayflexi_to_supabase(booking) for booking in bookings]
+                        mapped_bookings = [b for b in mapped_bookings if b]
+                        success_count = 0
+                        for booking in mapped_bookings:
+                            if save_to_supabase(booking):
+                                success_count += 1
+                        if success_count > 0:
+                            st.success(f"Successfully synced {success_count} bookings to Supabase")
+                        else:
+                            st.warning("No new bookings synced")
                     else:
-                        st.warning("No new bookings synced")
-                else:
-                    st.warning("No bookings fetched from Stayflexi")
+                        st.warning("No bookings fetched from Stayflexi")
+                except Exception as e:
+                    st.error(f"Error during sync: {str(e)}")
+                    logger.error(f"Error during sync: {str(e)}")
 
         # Load and display bookings from Supabase
         try:
@@ -250,6 +276,7 @@ def show_online_reservations():
                 df = pd.DataFrame()
         except Exception as e:
             st.error(f"Error loading reservations: {str(e)}")
+            logger.error(f"Error loading reservations: {str(e)}")
             df = pd.DataFrame()
 
         # Display bookings by property
