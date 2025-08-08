@@ -91,5 +91,3 @@ def main():
 
 if __name__ == "__main__":
     main() 
-
-this is the previous app.py make the new app.py as a full code.
