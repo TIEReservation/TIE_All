@@ -1,3 +1,4 @@
+STAYFLEXI_API_URL = "https://api.stayflexi.com/core/api/v1/reservation/navigationGetRoomBookings"
 STAYFLEXI_API_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJnYXlhdGhyaS50aWVAZ21haWwuY29tIiwiaXNzIjoibWF5YW5rU0YiLCJpYXQiOjE3NTQ0ODE4MjQsImV4cCI6MTc4NTU4NTgyNH0.9UmdbaCu7P5_Mfm8nIAaT2MDLR_RyTx3RdouMC0dP0o"
 STAYFLEXI_API_BASE_URL = "https://api.stayflexi.com"
 STAYFLEXI_EMAIL = "gayathri.tie@gmail.com"
