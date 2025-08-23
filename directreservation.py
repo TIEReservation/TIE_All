@@ -312,17 +312,17 @@ def show_new_reservation_form():
             # Dynamic room types based on property
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
-            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
+            room_type_options = available_room_types + ["Dayuse"] if "Dayuse" not in available_room_types else available_room_types
             if not available_room_types:
-                st.warning("No room types available for this property. Use 'Other'.")
+                st.warning("No room types available for this property. Use 'Dayuse'.")
             room_type = st.selectbox("Room Type", room_type_options, key=f"{form_key}_roomtype")
-            if room_type == "Other":
+            if room_type == "Dayuse":
                 custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
             else:
                 custom_room_type = None
             
             # Dynamic room numbers based on property and room type
-            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
+            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Dayuse" else []
             if available_rooms:
                 room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
             else:
