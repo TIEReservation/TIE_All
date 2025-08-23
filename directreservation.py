@@ -312,17 +312,17 @@ def show_new_reservation_form():
             # Dynamic room types based on property
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
-            room_type_options = available_room_types + ["Dayuse"] if "Dayuse" not in available_room_types else available_room_types
+            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
             if not available_room_types:
-                st.warning("No room types available for this property. Use 'Dayuse'.")
+                st.warning("No room types available for this property. Use 'Other'.")
             room_type = st.selectbox("Room Type", room_type_options, key=f"{form_key}_roomtype")
-            if room_type == "Dayuse":
+            if room_type == "Other":
                 custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
             else:
                 custom_room_type = None
             
             # Dynamic room numbers based on property and room type
-            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Dayuse" else []
+            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
             if available_rooms:
                 room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
             else:
@@ -718,7 +718,7 @@ def show_edit_form(edit_index):
                         else:
                             st.error("❌ Failed to update reservation")
         with col_btn2:
-            if st.button("🗑️ Delete Reservation", key=f"{form_key}_delete", use_container_width=True):
+            if st.session_state.role == "Management" and st.button("🗑️ Delete Reservation", key=f"{form_key}_delete", use_container_width=True):
                 if delete_reservation_in_supabase(reservation["Booking ID"]):
                     st.session_state.reservations.pop(edit_index)
                     st.session_state.edit_mode = False
@@ -727,8 +727,6 @@ def show_edit_form(edit_index):
                     st.rerun()
                 else:
                     st.error("❌ Failed to delete reservation")
-    except Exception as e:
-        st.error(f"Error rendering edit form: {e}")
 
 def show_analytics():
     """Display analytics dashboard for Management users."""
