@@ -296,6 +296,73 @@ def show_confirmation_dialog(booking_id, is_update=False):
     if st.button("✔️ Confirm", use_container_width=True):
         st.rerun()
 
+def display_date_range_analysis(df, start_date=None, end_date=None, view_mode=False):
+    """
+    Display reservation details grouped by month and week for a given date range.
+    Args:
+        df (pd.DataFrame): Reservations DataFrame.
+        start_date (date, optional): Start of the date range.
+        end_date (date, optional): End of the date range.
+        view_mode (bool): If True, show only tables (View Reservations); else, show metrics + tables (Analytics).
+    """
+    if start_date and end_date:
+        if end_date < start_date:
+            st.error("❌ End date must be on or after start date")
+            return
+        filtered_df = df[(df["Check In"] >= start_date) & (df["Check In"] <= end_date)]
+    else:
+        filtered_df = df.copy()
+
+    if filtered_df.empty:
+        st.warning("No reservations found for the selected date range.")
+        return
+
+    # Month-wise analysis
+    st.subheader("Month-wise Analysis")
+    filtered_df["Month"] = filtered_df["Check In"].apply(lambda x: x.strftime("%Y-%m"))
+    months = sorted(filtered_df["Month"].unique())
+    for month in months:
+        with st.expander(f"Month: {month}"):
+            month_df = filtered_df[filtered_df["Month"] == month]
+            if not view_mode:
+                st.write(f"**Total Reservations**: {len(month_df)}")
+                total_revenue = month_df["Total Tariff"].sum()
+                st.write(f"**Total Revenue**: ₹{total_revenue:,.2f}")
+                total_collected = month_df["Advance Amount"].sum() + month_df[month_df["Plan Status"] == "Completed"]["Balance Amount"].sum()
+                st.write(f"**Total Revenue Collected**: ₹{total_collected:,.2f}")
+                balance_pending = month_df[month_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
+                st.write(f"**Balance Pending**: ₹{balance_pending:,.2f}")
+                st.write(f"**Average Tariff**: ₹{month_df['Tariff'].mean():,.2f}" if not month_df.empty else "₹0.00")
+                st.write(f"**Average Stay**: {month_df['No of Days'].mean():.1f} days" if not month_df.empty else "0.0 days")
+            st.dataframe(
+                month_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "MOB"]],
+                use_container_width=True
+            )
+
+    # Week-wise analysis
+    st.subheader("Week-wise Analysis")
+    filtered_df["Year"] = filtered_df["Check In"].apply(lambda x: x.year)
+    filtered_df["Week"] = filtered_df["Check In"].apply(lambda x: x.isocalendar().week)
+    filtered_df["Year-Week"] = filtered_df.apply(lambda x: f"{x['Year']}-W{x['Week']:02d}", axis=1)
+    weeks = sorted(filtered_df["Year-Week"].unique())
+    for week in weeks:
+        with st.expander(f"Week: {week}"):
+            week_df = filtered_df[filtered_df["Year-Week"] == week]
+            if not view_mode:
+                st.write(f"**Total Reservations**: {len(week_df)}")
+                total_revenue = week_df["Total Tariff"].sum()
+                st.write(f"**Total Revenue**: ₹{total_revenue:,.2f}")
+                total_collected = week_df["Advance Amount"].sum() + week_df[week_df["Plan Status"] == "Completed"]["Balance Amount"].sum()
+                st.write(f"**Total Revenue Collected**: ₹{total_collected:,.2f}")
+                balance_pending = week_df[week_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
+                st.write(f"**Balance Pending**: ₹{balance_pending:,.2f}")
+                st.write(f"**Average Tariff**: ₹{week_df['Tariff'].mean():,.2f}" if not week_df.empty else "₹0.00")
+                st.write(f"**Average Stay**: {week_df['No of Days'].mean():.1f} days" if not week_df.empty else "0.0 days")
+            st.dataframe(
+                week_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "MOB"]],
+                use_container_width=True
+            )
+
 def show_new_reservation_form():
     """Display form for creating a new reservation with dynamic room assignments."""
     try:
@@ -459,6 +526,21 @@ def show_reservations():
     st.header("📋 View Reservations")
     df = pd.DataFrame(st.session_state.reservations)
     
+    st.subheader("Date Range Filter")
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        start_date = st.date_input("Start Date", value=None, key="view_date_range_start")
+    with col2:
+        end_date = st.date_input("End Date", value=None, key="view_date_range_end")
+    with col3:
+        if st.button("Reset Date Range", key="view_reset_date_range"):
+            start_date = None
+            end_date = None
+            st.rerun()
+
+    display_date_range_analysis(df, start_date, end_date, view_mode=True)
+
+    st.subheader("Additional Filters")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="view_filter_status")
@@ -742,7 +824,22 @@ def show_analytics():
         return
 
     df = pd.DataFrame(st.session_state.reservations)
-    st.subheader("Filters")
+    
+    st.subheader("Date Range Filter")
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        start_date = st.date_input("Start Date", value=None, key="analytics_date_range_start")
+    with col2:
+        end_date = st.date_input("End Date", value=None, key="analytics_date_range_end")
+    with col3:
+        if st.button("Reset Date Range", key="analytics_reset_date_range"):
+            start_date = None
+            end_date = None
+            st.rerun()
+
+    display_date_range_analysis(df, start_date, end_date, view_mode=False)
+
+    st.subheader("Additional Filters")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="analytics_filter_status")
