@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Initialize Supabase client
 try:
-    supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    supabase: Pillarstone: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 except KeyError as e:
     st.error(f"Missing Supabase secret: {e}. Please check Streamlit Cloud secrets configuration.")
     st.stop()
@@ -305,7 +305,7 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
         end_date (date, optional): End of the date range.
         view_mode (bool): If True, return filtered DataFrame for table display; else, display metrics and property-wise details.
     Returns:
-        pd.DataFrame: Filtered DataFrame.
+        pd.DataFrame: Filtered DataFrame with Month, Year, Week, and Year-Week columns.
     """
     filtered_df = df.copy()
     # Filter out invalid Check In dates
@@ -320,6 +320,12 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
     if filtered_df.empty:
         st.warning("No reservations found for the selected filters.")
         return filtered_df
+    
+    # Add Month, Year, Week, and Year-Week columns using .loc to avoid SettingWithCopyWarning
+    filtered_df.loc[:, "Month"] = filtered_df["Check In"].apply(lambda x: x.strftime("%Y-%m"))
+    filtered_df.loc[:, "Year"] = filtered_df["Check In"].apply(lambda x: x.year)
+    filtered_df.loc[:, "Week"] = filtered_df["Check In"].apply(lambda x: x.isocalendar().week)
+    filtered_df.loc[:, "Year-Week"] = filtered_df.apply(lambda x: f"{x['Year']}-W{x['Week']:02d}", axis=1)
     
     if not view_mode:
         st.subheader("Overall Summary")
@@ -796,7 +802,7 @@ def show_edit_form(edit_index):
         st.error(f"Error rendering edit form: {e}")
 
 def show_analytics():
-    """Display analytics dashboard for Management users."""
+    """Display analytics dashboard for Management users with month-wise and week-wise breakdowns."""
     if st.session_state.role != "Management":
         st.error("❌ Access Denied: Analytics is available only for Management users.")
         return
@@ -811,16 +817,15 @@ def show_analytics():
     st.subheader("Filters")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        start_date = st.date_input("Start Date", value=None, key="analytics_filter_start_date", help="Filter by Check In date range (optional)")
+        start_date = st.date_input("Start Date", value=date(2025, 8, 1), key="analytics_filter_start_date", help="Filter by Check In date range (optional)")
     with col2:
-        end_date = st.date_input("End Date", value=None, key="analytics_filter_end_date", help="Filter by Check In date range (optional)")
+        end_date = st.date_input("End Date", value=date(2025, 8, 31), key="analytics_filter_end_date", help="Filter by Check In date range (optional)")
     with col3:
         filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="analytics_filter_status")
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="analytics_filter_check_in_date")
     with col5:
-        filter_check_out_date = st.date_input("Check-out Date", value=None, key="analytics_filter_check_out_date")
-    with col6:
+        filter_check_out_date = st.date_input("Check-out Date", value=None, key="_except:
         filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="analytics_filter_property")
 
     filtered_df = display_filtered_analysis(df, start_date, end_date, view_mode=False)
@@ -838,7 +843,7 @@ def show_analytics():
         st.warning("No reservations match the selected filters.")
         return
 
-    # Visualizations moved here with unique keys
+    # Visualizations with unique keys
     st.subheader("Visualizations")
     col1, col2 = st.columns(2)
     with col1:
@@ -849,9 +854,10 @@ def show_analytics():
             values="Reservation Count",
             names="Property Name",
             title="Reservation Distribution by Property",
-            height=400
+            height=400,
+            color_discrete_sequence=px.colors.qualitative.Plotly
         )
-        st.plotly_chart(fig_pie, use_container_width=True, key="analytics_pie_chart")
+        st.plotly_chart(fig_pie, use_container_width=True, key="analytics_pie_chart_property_distribution")
     with col2:
         revenue_by_property = filtered_df.groupby("Property Name")["Total Tariff"].sum().reset_index()
         fig_bar = px.bar(
@@ -860,6 +866,47 @@ def show_analytics():
             y="Total Tariff",
             title="Total Revenue by Property",
             height=400,
-            labels={"Total Tariff": "Revenue (₹)"}
+            labels={"Total Tariff": "Revenue (₹)"},
+            color_discrete_sequence=["#636EFA"]
         )
-        st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart")
+        st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart_revenue")
+
+    # Month-wise Summary
+    st.subheader("Monthly Summary")
+    monthly_summary = filtered_df.groupby("Month").agg({
+        "Property Name": "count",
+        "Total Tariff": "sum"
+    }).rename(columns={"Property Name": "Reservation Count", "Total Tariff": "Total Revenue"})
+    st.dataframe(monthly_summary, use_container_width=True)
+
+    # Month-wise Visualization
+    fig_monthly = px.bar(
+        monthly_summary,
+        x=monthly_summary.index,
+        y="Reservation Count",
+        title="Reservations by Month",
+        height=400,
+        labels={"Month": "Month (YYYY-MM)"},
+        color_discrete_sequence=["#00CC96"]
+    )
+    st.plotly_chart(fig_monthly, use_container_width=True, key="analytics_bar_chart_monthly")
+
+    # Week-wise Summary
+    st.subheader("Weekly Summary")
+    weekly_summary = filtered_df.groupby("Year-Week").agg({
+        "Property Name": "count",
+        "Total Tariff": "sum"
+    }).rename(columns={"Property Name": "Reservation Count", "Total Tariff": "Total Revenue"})
+    st.dataframe(weekly_summary, use_container_width=True)
+
+    # Week-wise Visualization
+    fig_weekly = px.bar(
+        weekly_summary,
+        x=weekly_summary.index,
+        y="Reservation Count",
+        title="Reservations by Week",
+        height=400,
+        labels={"Year-Week": "Week (YYYY-Wnn)"},
+        color_discrete_sequence=["#EF553B"]
+    )
+    st.plotly_chart(fig_weekly, use_container_width=True, key="analytics_bar_chart_weekly")
