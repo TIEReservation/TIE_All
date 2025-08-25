@@ -303,7 +303,7 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
         df (pd.DataFrame): Reservations DataFrame.
         start_date (date, optional): Start of the date range.
         end_date (date, optional): End of the date range.
-        view_mode (bool): If True, return filtered DataFrame for table display; else, display metrics and visualizations.
+        view_mode (bool): If True, return filtered DataFrame for table display; else, display metrics and property-wise details.
     Returns:
         pd.DataFrame: Filtered DataFrame.
     """
@@ -340,31 +340,6 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
         with col6:
             balance_pending = filtered_df[filtered_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
             st.metric("Balance Pending", f"₹{balance_pending:,.2f}")
-
-        st.subheader("Visualizations")
-        col1, col2 = st.columns(2)
-        with col1:
-            property_counts = filtered_df["Property Name"].value_counts().reset_index()
-            property_counts.columns = ["Property Name", "Reservation Count"]
-            fig_pie = px.pie(
-                property_counts,
-                values="Reservation Count",
-                names="Property Name",
-                title="Reservation Distribution by Property",
-                height=400
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        with col2:
-            revenue_by_property = filtered_df.groupby("Property Name")["Total Tariff"].sum().reset_index()
-            fig_bar = px.bar(
-                revenue_by_property,
-                x="Property Name",
-                y="Total Tariff",
-                title="Total Revenue by Property",
-                height=400,
-                labels={"Total Tariff": "Revenue (₹)"}
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
 
         st.subheader("Property-wise Reservation Details")
         properties = sorted(filtered_df["Property Name"].unique())
@@ -863,25 +838,7 @@ def show_analytics():
         st.warning("No reservations match the selected filters.")
         return
 
-    st.subheader("Overall Summary")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Reservations", len(filtered_df))
-    with col2:
-        total_revenue = filtered_df["Total Tariff"].sum()
-        st.metric("Total Revenue", f"₹{total_revenue:,.2f}")
-    with col3:
-        st.metric("Average Tariff", f"₹{filtered_df['Tariff'].mean():,.2f}" if not filtered_df.empty else "₹0.00")
-    with col4:
-        st.metric("Average Stay", f"{filtered_df['No of Days'].mean():.1f} days" if not filtered_df.empty else "0.0 days")
-    col5, col6 = st.columns(2)
-    with col5:
-        total_collected = filtered_df["Advance Amount"].sum() + filtered_df[filtered_df["Plan Status"] == "Completed"]["Balance Amount"].sum()
-        st.metric("Total Revenue Collected", f"₹{total_collected:,.2f}")
-    with col6:
-        balance_pending = filtered_df[filtered_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
-        st.metric("Balance Pending", f"₹{balance_pending:,.2f}")
-
+    # Visualizations moved here with unique keys
     st.subheader("Visualizations")
     col1, col2 = st.columns(2)
     with col1:
@@ -894,7 +851,7 @@ def show_analytics():
             title="Reservation Distribution by Property",
             height=400
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, use_container_width=True, key="analytics_pie_chart")
     with col2:
         revenue_by_property = filtered_df.groupby("Property Name")["Total Tariff"].sum().reset_index()
         fig_bar = px.bar(
@@ -905,23 +862,4 @@ def show_analytics():
             height=400,
             labels={"Total Tariff": "Revenue (₹)"}
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    st.subheader("Property-wise Reservation Details")
-    properties = sorted(filtered_df["Property Name"].unique())
-    for property in properties:
-        with st.expander(f"{property} Reservations"):
-            property_df = filtered_df[filtered_df["Property Name"] == property]
-            st.write(f"**Total Reservations**: {len(property_df)}")
-            total_revenue = property_df["Total Tariff"].sum()
-            st.write(f"**Total Revenue**: ₹{total_revenue:,.2f}")
-            total_collected = property_df["Advance Amount"].sum() + property_df[property_df["Plan Status"] == "Completed"]["Balance Amount"].sum()
-            st.write(f"**Total Revenue Collected**: ₹{total_collected:,.2f}")
-            balance_pending = property_df[property_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
-            st.write(f"**Balance Pending**: ₹{balance_pending:,.2f}")
-            st.write(f"**Average Tariff**: ₹{property_df['Tariff'].mean():,.2f}" if not property_df.empty else "₹0.00")
-            st.write(f"**Average Stay**: {property_df['No of Days'].mean():.1f} days" if not property_df.empty else "0.0 days")
-            st.dataframe(
-                property_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "MOB"]],
-                use_container_width=True
-            )
+        st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart")
