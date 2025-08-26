@@ -383,7 +383,8 @@ def show_new_reservation_form():
         form_key = "new_reservation"
 
         # Row 1: Property Name, Guest Name, Mobile No
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 property_options = sorted(load_property_room_map().keys())
                 property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
@@ -391,10 +392,14 @@ def show_new_reservation_form():
                 guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
             with cols[2]:
                 mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 2: Enquiry Date, Check In, Check Out, No of Days
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
             with cols[1]:
@@ -404,10 +409,14 @@ def show_new_reservation_form():
             with cols[3]:
                 no_of_days = calculate_days(check_in, check_out)
                 st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
             with cols[1]:
@@ -416,10 +425,14 @@ def show_new_reservation_form():
                 infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
             with cols[3]:
                 breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 4: Total Pax, No of Days, Room Type, Room No
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
                 st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants", key=f"{form_key}_pax")
@@ -439,6 +452,9 @@ def show_new_reservation_form():
                 else:
                     st.warning("No rooms available for this room type. Enter manually.")
                     room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         if room_type == "Other":
             custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
         else:
@@ -446,7 +462,8 @@ def show_new_reservation_form():
         st.markdown("---")
 
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 tariff = st.number_input("Tariff (per day)", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_tariff")
             with cols[1]:
@@ -459,10 +476,14 @@ def show_new_reservation_form():
                     custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
                 else:
                     custom_advance_mop = None
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 6: Total Tariff, Balance Amount, Balance MOP
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 total_tariff = safe_float(tariff) * max(0, no_of_days)
                 st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days", key=f"{form_key}_total_tariff")
@@ -477,30 +498,45 @@ def show_new_reservation_form():
                     custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
                 else:
                     custom_balance_mop = None
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 7: Booking Date, Invoice No, Plan Status
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
             with cols[1]:
                 invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
             with cols[2]:
                 plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 8: Remarks
-        with st.columns(1) as cols:
+        try:
+            cols = st.columns(1)
             with cols[0]:
                 remarks = st.text_area("Remarks", placeholder="Additional notes about the reservation", key=f"{form_key}_remarks")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 9: Payment Status, Submitted By
-        with st.columns(2) as cols:
+        try:
+            cols = st.columns(2)
             with cols[0]:
                 payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")
             with cols[1]:
                 submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Dynamic MOB and Online Source
@@ -692,7 +728,8 @@ def show_edit_form(edit_index):
         form_key = f"edit_reservation_{edit_index}"
 
         # Row 1: Property Name, Guest Name, Mobile No
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 property_options = sorted(load_property_room_map().keys())
                 if reservation["Property Name"] == "Property 16":
@@ -703,10 +740,14 @@ def show_edit_form(edit_index):
                 guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
             with cols[2]:
                 mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 2: Enquiry Date, Check In, Check Out, No of Days
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"], key=f"{form_key}_enquiry")
             with cols[1]:
@@ -716,10 +757,14 @@ def show_edit_form(edit_index):
             with cols[3]:
                 no_of_days = calculate_days(check_in, check_out)
                 st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"], key=f"{form_key}_adults")
             with cols[1]:
@@ -728,10 +773,14 @@ def show_edit_form(edit_index):
                 infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"], key=f"{form_key}_infants")
             with cols[3]:
                 breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 4: Total Pax, No of Days, Room Type, Room No
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
                 st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants", key=f"{form_key}_pax")
@@ -755,6 +804,9 @@ def show_edit_form(edit_index):
                 else:
                     st.warning("No rooms available for this room type. Enter manually.")
                     room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         if room_type == "Other":
             custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
         else:
@@ -762,7 +814,8 @@ def show_edit_form(edit_index):
         st.markdown("---")
 
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 tariff = st.number_input("Tariff (per day)", min_value=0.0, value=reservation["Tariff"], step=100.0, key=f"{form_key}_tariff")
             with cols[1]:
@@ -775,10 +828,14 @@ def show_edit_form(edit_index):
                     custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation["Advance MOP"] if advance_mop_index == len(advance_mop_options) - 1 else "", key=f"{form_key}_custom_advmop")
                 else:
                     custom_advance_mop = None
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 6: Total Tariff, Balance Amount, Balance MOP
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 total_tariff = safe_float(tariff) * max(0, no_of_days)
                 st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days", key=f"{form_key}_total_tariff")
@@ -793,26 +850,38 @@ def show_edit_form(edit_index):
                     custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation["Balance MOP"] if balance_mop_index == len(balance_mop_options) - 1 else "", key=f"{form_key}_custom_balmop")
                 else:
                     custom_balance_mop = None
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 7: Booking Date, Invoice No, Plan Status
-        with st.columns(3) as cols:
+        try:
+            cols = st.columns(3)
             with cols[0]:
                 booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
             with cols[1]:
                 invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
             with cols[2]:
                 plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 8: Remarks
-        with st.columns(1) as cols:
+        try:
+            cols = st.columns(1)
             with cols[0]:
                 remarks = st.text_area("Remarks", value=reservation["Remarks"], placeholder="Additional notes about the reservation", key=f"{form_key}_remarks")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Row 9: Payment Status, Submitted By, Modified By, Modified Comments
-        with st.columns(4) as cols:
+        try:
+            cols = st.columns(4)
             with cols[0]:
                 payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=["Fully Paid", "Partially Paid", "Not Paid"].index(reservation["Payment Status"]), key=f"{form_key}_payment_status")
             with cols[1]:
@@ -821,6 +890,9 @@ def show_edit_form(edit_index):
                 modified_by = st.text_input("Modified By", value=reservation["Modified By"], key=f"{form_key}_modified_by")
             with cols[3]:
                 modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"], key=f"{form_key}_modified_comments")
+        except Exception as e:
+            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
+            return
         st.markdown("---")
 
         # Dynamic MOB and Online Source
