@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Initialize Supabase client
 try:
-    supabase: Pillarstone: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
 except KeyError as e:
     st.error(f"Missing Supabase secret: {e}. Please check Streamlit Cloud secrets configuration.")
     st.stop()
@@ -825,7 +825,8 @@ def show_analytics():
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="analytics_filter_check_in_date")
     with col5:
-        filter_check_out_date = st.date_input("Check-out Date", value=None, key="_except:
+        filter_check_out_date = st.date_input("Check-out Date", value=None, key="analytics_filter_check_out_date")
+    with col6:
         filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="analytics_filter_property")
 
     filtered_df = display_filtered_analysis(df, start_date, end_date, view_mode=False)
@@ -879,18 +880,6 @@ def show_analytics():
     }).rename(columns={"Property Name": "Reservation Count", "Total Tariff": "Total Revenue"})
     st.dataframe(monthly_summary, use_container_width=True)
 
-    # Month-wise Visualization
-    fig_monthly = px.bar(
-        monthly_summary,
-        x=monthly_summary.index,
-        y="Reservation Count",
-        title="Reservations by Month",
-        height=400,
-        labels={"Month": "Month (YYYY-MM)"},
-        color_discrete_sequence=["#00CC96"]
-    )
-    st.plotly_chart(fig_monthly, use_container_width=True, key="analytics_bar_chart_monthly")
-
     # Week-wise Summary
     st.subheader("Weekly Summary")
     weekly_summary = filtered_df.groupby("Year-Week").agg({
@@ -898,15 +887,3 @@ def show_analytics():
         "Total Tariff": "sum"
     }).rename(columns={"Property Name": "Reservation Count", "Total Tariff": "Total Revenue"})
     st.dataframe(weekly_summary, use_container_width=True)
-
-    # Week-wise Visualization
-    fig_weekly = px.bar(
-        weekly_summary,
-        x=weekly_summary.index,
-        y="Reservation Count",
-        title="Reservations by Week",
-        height=400,
-        labels={"Year-Week": "Week (YYYY-Wnn)"},
-        color_discrete_sequence=["#EF553B"]
-    )
-    st.plotly_chart(fig_weekly, use_container_width=True, key="analytics_bar_chart_weekly")
