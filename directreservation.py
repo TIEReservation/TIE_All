@@ -382,9 +382,9 @@ def show_new_reservation_form():
         st.header("📝 Direct Reservations")
         form_key = "new_reservation"
 
-        # Row 1: Property Name, Guest Name, Mobile No
+        # Row 1: Property Name, Guest Name, Mobile No, MOB (Mode of Booking)
         try:
-            cols = st.columns(3)
+            cols = st.columns(4)
             with cols[0]:
                 property_options = sorted(load_property_room_map().keys())
                 property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
@@ -392,6 +392,25 @@ def show_new_reservation_form():
                 guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
             with cols[2]:
                 mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
+            with cols[3]:
+                mob = st.selectbox("MOB (Mode of Booking)",
+                                   ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
+                                   key=f"{form_key}_mob")
+                if mob == "Others":
+                    custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
+                else:
+                    custom_mob = None
+                if mob == "Online":
+                    online_source = st.selectbox("Online Source",
+                                                 ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
+                                                 key=f"{form_key}_online_source")
+                    if online_source == "Others":
+                        custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
+                    else:
+                        custom_online_source = None
+                else:
+                    online_source = None
+                    custom_online_source = None
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
@@ -529,26 +548,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-
-        # Dynamic MOB and Online Source
-        mob = st.selectbox("MOB (Mode of Booking)",
-                           ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
-                           key=f"{form_key}_mob")
-        if mob == "Others":
-            custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
-        else:
-            custom_mob = None
-        if mob == "Online":
-            online_source = st.selectbox("Online Source",
-                                         ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
-                                         key=f"{form_key}_online_source")
-            if online_source == "Others":
-                custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
-            else:
-                custom_online_source = None
-        else:
-            online_source = None
-            custom_online_source = None
 
         st.markdown("---")  # Separator before submit button
 
@@ -720,9 +719,9 @@ def show_edit_form(edit_index):
         reservation = st.session_state.reservations[edit_index]
         form_key = f"edit_reservation_{edit_index}"
 
-        # Row 1: Property Name, Guest Name, Mobile No
+        # Row 1: Property Name, Guest Name, Mobile No, MOB (Mode of Booking)
         try:
-            cols = st.columns(3)
+            cols = st.columns(4)
             with cols[0]:
                 property_options = sorted(load_property_room_map().keys())
                 if reservation["Property Name"] == "Property 16":
@@ -733,6 +732,25 @@ def show_edit_form(edit_index):
                 guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
             with cols[2]:
                 mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
+            with cols[3]:
+                mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
+                mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
+                mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
+                if mob == "Others":
+                    custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
+                else:
+                    custom_mob = None
+                if mob == "Online":
+                    online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
+                    online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
+                    online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
+                    if online_source == "Others":
+                        custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
+                    else:
+                        custom_online_source = None
+                else:
+                    online_source = None
+                    custom_online_source = None
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
@@ -878,26 +896,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-
-        # Dynamic MOB and Online Source
-        mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
-        mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
-        mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
-        if mob == "Others":
-            custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
-        else:
-            custom_mob = None
-        if mob == "Online":
-            online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
-            online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
-            online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
-            if online_source == "Others":
-                custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
-            else:
-                custom_online_source = None
-        else:
-            online_source = None
-            custom_online_source = None
 
         st.markdown("---")  # Separator before buttons
 
