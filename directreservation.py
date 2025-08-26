@@ -463,7 +463,7 @@ def show_new_reservation_form():
             booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
         with col7:
             breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"], key=f"{form_key}_status")
             submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
 
         if st.button("💾 Save Reservation", use_container_width=True):
@@ -729,7 +729,7 @@ def show_edit_form(edit_index):
             submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"], key=f"{form_key}_submitted_by")
         with col7:
             breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"].index(reservation["Plan Status"]), key=f"{form_key}_status")
             modified_by = st.text_input("Modified By", value=reservation["Modified By"], key=f"{form_key}_modified_by")
             modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"], key=f"{form_key}_modified_comments")
 
