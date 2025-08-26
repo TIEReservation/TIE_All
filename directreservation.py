@@ -58,11 +58,11 @@ def load_property_room_map():
             "Villa": ["101to104", "101", "102", "103", "104"]
         },
         "Le Royce Villa": {
-            "Villa": ["101to102&201to202", "101", "102", "202", "202"]  # Note: duplicate "202" as per data
+            "Villa": ["101to102&201to202", "101", "102", "202", "202"]
         },
         "La Tamara Luxury": {
             "3BHA": ["101to103", "101", "102", "103", "104to106", "104", "105", "106", "201to203", "201", "202", "203", "204to206", "204", "205", "206", "301to303", "301", "302", "303", "304to306", "304", "305", "306"],
-            "4BHA": ["401to404", "401", "402", "403", "404"]  # Note: duplicate "404" as per data
+            "4BHA": ["401to404", "401", "402", "403", "404"]
         },
         "La Antilia": {
             "Deluex Suite Room": ["101"],
@@ -395,7 +395,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 2: Enquiry Date, Check In, Check Out, No of Days
         try:
@@ -412,7 +411,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
         try:
@@ -428,7 +426,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 4: Total Pax, No of Days, Room Type, Room No
         try:
@@ -459,7 +456,6 @@ def show_new_reservation_form():
             custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
         else:
             custom_room_type = None
-        st.markdown("---")
 
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
         try:
@@ -479,7 +475,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 6: Total Tariff, Balance Amount, Balance MOP
         try:
@@ -501,7 +496,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 7: Booking Date, Invoice No, Plan Status
         try:
@@ -515,7 +509,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 8: Remarks
         try:
@@ -525,7 +518,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 9: Payment Status, Submitted By
         try:
@@ -537,7 +529,6 @@ def show_new_reservation_form():
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Dynamic MOB and Online Source
         mob = st.selectbox("MOB (Mode of Booking)",
@@ -558,6 +549,8 @@ def show_new_reservation_form():
         else:
             online_source = None
             custom_online_source = None
+
+        st.markdown("---")  # Separator before submit button
 
         if st.button("💾 Save Reservation", use_container_width=True):
             if not all([property_name, room_no, guest_name, mobile_no]):
@@ -743,7 +736,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 2: Enquiry Date, Check In, Check Out, No of Days
         try:
@@ -760,7 +752,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
         try:
@@ -776,7 +767,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 4: Total Pax, No of Days, Room Type, Room No
         try:
@@ -811,7 +801,6 @@ def show_edit_form(edit_index):
             custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
         else:
             custom_room_type = None
-        st.markdown("---")
 
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
         try:
@@ -831,7 +820,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 6: Total Tariff, Balance Amount, Balance MOP
         try:
@@ -853,7 +841,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 7: Booking Date, Invoice No, Plan Status
         try:
@@ -867,7 +854,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 8: Remarks
         try:
@@ -877,7 +863,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Row 9: Payment Status, Submitted By, Modified By, Modified Comments
         try:
@@ -893,7 +878,6 @@ def show_edit_form(edit_index):
         except Exception as e:
             st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
             return
-        st.markdown("---")
 
         # Dynamic MOB and Online Source
         mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
@@ -914,6 +898,8 @@ def show_edit_form(edit_index):
         else:
             online_source = None
             custom_online_source = None
+
+        st.markdown("---")  # Separator before buttons
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
@@ -1054,25 +1040,24 @@ def show_analytics():
         )
         st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart")
 
-        # Month-wise and week-wise visualizations
-        month_groups, week_groups = group_by_month_and_week(filtered_df)
-        month_revenue = month_groups["Total Tariff"].sum().reset_index()
-        fig_month = px.bar(
-            month_revenue,
-            x="Month",
-            y="Total Tariff",
-            title="Revenue by Month",
-            height=400,
-            labels={"Total Tariff": "Revenue (₹)"}
-        )
-        st.plotly_chart(fig_month, use_container_width=True, key="analytics_month_chart")
-        week_revenue = week_groups["Total Tariff"].sum().reset_index()
-        fig_week = px.bar(
-            week_revenue,
-            x="Week",
-            y="Total Tariff",
-            title="Revenue by Week",
-            height=400,
-            labels={"Total Tariff": "Revenue (₹)"}
-        )
-        st.plotly_chart(fig_week, use_container_width=True, key="analytics_week_chart")
+# Main app logic
+if "reservations" not in st.session_state:
+    st.session_state.reservations = load_reservations_from_supabase()
+if "role" not in st.session_state:
+    st.session_state.role = "Staff"  # Default role; can be changed to "Management"
+if "edit_mode" not in st.session_state:
+    st.session_state.edit_mode = False
+if "edit_index" not in st.session_state:
+    st.session_state.edit_index = None
+
+st.title("🏨 Direct Reservation System")
+tabs = st.tabs(["New Reservation", "View Reservations", "Edit Reservations", "Analytics"])
+
+with tabs[0]:
+    show_new_reservation_form()
+with tabs[1]:
+    show_reservations()
+with tabs[2]:
+    show_edit_reservations()
+with tabs[3]:
+    show_analytics()
