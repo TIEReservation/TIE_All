@@ -1051,13 +1051,17 @@ if "edit_index" not in st.session_state:
     st.session_state.edit_index = None
 
 st.title("🏨 Direct Reservation System")
-tabs = st.tabs(["New Reservation", "View Reservations", "Edit Reservations", "Analytics"])
 
-with tabs[0]:
+# Sidebar navigation
+with st.sidebar:
+    page = st.selectbox("Select Page", ["New Reservation", "View Reservations", "Edit Reservations", "Analytics"], key="page_select")
+
+# Render selected page
+if page == "New Reservation":
     show_new_reservation_form()
-with tabs[1]:
+elif page == "View Reservations":
     show_reservations()
-with tabs[2]:
+elif page == "Edit Reservations":
     show_edit_reservations()
-with tabs[3]:
+elif page == "Analytics":
     show_analytics()
