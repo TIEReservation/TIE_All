@@ -538,7 +538,7 @@ def show_reservations():
     with col2:
         end_date = st.date_input("End Date", value=None, key="view_filter_end_date", help="Filter by Check In date range (optional)")
     with col3:
-        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="view_filter_status")
+        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"], key="view_filter_status")
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="view_filter_check_in_date")
     with col5:
@@ -579,7 +579,7 @@ def show_edit_reservations():
         st.subheader("Filters")
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
-            filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="edit_filter_status")
+            filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"], key="edit_filter_status")
         with col2:
             filter_check_in_date = st.date_input("Check-in Date", value=None, key="edit_filter_check_in_date")
         with col3:
@@ -821,7 +821,7 @@ def show_analytics():
     with col2:
         end_date = st.date_input("End Date", value=date(2025, 8, 31), key="analytics_filter_end_date", help="Filter by Check In date range (optional)")
     with col3:
-        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="analytics_filter_status")
+        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show", "Fully Paid"], key="analytics_filter_status")
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="analytics_filter_check_in_date")
     with col5:
