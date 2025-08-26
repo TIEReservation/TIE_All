@@ -547,6 +547,7 @@ def show_reservations():
         end_date = st.date_input("End Date", value=None, key="view_filter_end_date", help="Filter by Check In date range (optional)")
     with col3:
         # Plan Status options in alphabetical order for consistency
+        st.write("Debug: Options:", PLAN_STATUS_OPTIONS)  # Debug output
         filter_status = st.selectbox("Filter by Status", PLAN_STATUS_OPTIONS, key="view_filter_status")
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="view_filter_check_in_date")
@@ -589,6 +590,7 @@ def show_edit_reservations():
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
             # Plan Status options in alphabetical order for consistency
+            st.write("Debug: Options:", PLAN_STATUS_OPTIONS)  # Debug output
             filter_status = st.selectbox("Filter by Status", PLAN_STATUS_OPTIONS, key="edit_filter_status")
         with col2:
             filter_check_in_date = st.date_input("Check-in Date", value=None, key="edit_filter_check_in_date")
@@ -832,6 +834,7 @@ def show_analytics():
         end_date = st.date_input("End Date", value=date(2025, 8, 31), key="analytics_filter_end_date", help="Filter by Check In date range (optional)")
     with col3:
         # Plan Status options in alphabetical order for consistency
+        st.write("Debug: Options:", PLAN_STATUS_OPTIONS)  # Debug output
         filter_status = st.selectbox("Filter by Status", PLAN_STATUS_OPTIONS, key="analytics_filter_status")
     with col4:
         filter_check_in_date = st.date_input("Check-in Date", value=None, key="analytics_filter_check_in_date")
