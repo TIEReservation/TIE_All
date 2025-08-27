@@ -701,7 +701,6 @@ def show_reservations():
             "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to view details")
         },
         hide_index=True,
-        use_container=True,
         unsafe_allow_html=True
     )
 
@@ -759,7 +758,6 @@ def show_edit_reservations():
                 "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to edit reservation")
             },
             hide_index=True,
-            use_container=True,
             unsafe_allow_html=True
         )
 
