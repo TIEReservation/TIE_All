@@ -296,17 +296,9 @@ def delete_reservation_in_supabase(booking_id):
         st.error(f"Error deleting reservation: {e}")
         return False
 
-@st.dialog("Reservation Confirmation")
-def show_confirmation_dialog(booking_id, is_update=False):
-    """Show confirmation dialog for new or updated reservations."""
-    message = "Reservation Updated!" if is_update else "Reservation Confirmed!"
-    st.markdown(f"**{message}**\n\nBooking ID: {booking_id}")
-    if st.button("✔️ Confirm", use_container_width=True):
-        st.rerun()
-
-@st.dialog("Reservation Details")
-def show_reservation_details(reservation):
-    """Show detailed view of a reservation."""
+@st.dialog("Reservation Particulars")
+def show_reservation_particulars(reservation):
+    """Display detailed reservation particulars in a dialog."""
     st.subheader(f"Reservation Details: {reservation['Booking ID']}")
     cols = st.columns(2)
     with cols[0]:
@@ -314,36 +306,25 @@ def show_reservation_details(reservation):
         st.write(f"**Guest Name**: {reservation['Guest Name']}")
         st.write(f"**Mobile No**: {reservation['Mobile No']}")
         st.write(f"**MOB**: {reservation['MOB']}")
-        if reservation['Online Source']:
-            st.write(f"**Online Source**: {reservation['Online Source']}")
-        st.write(f"**Room Type**: {reservation['Room Type']}")
         st.write(f"**Room No**: {reservation['Room No']}")
         st.write(f"**Check In**: {reservation['Check In']}")
         st.write(f"**Check Out**: {reservation['Check Out']}")
-        st.write(f"**No of Days**: {reservation['No of Days']}")
-        st.write(f"**No of Adults**: {reservation['No of Adults']}")
-        st.write(f"**No of Children**: {reservation['No of Children']}")
-        st.write(f"**No of Infants**: {reservation['No of Infants']}")
-        st.write(f"**Total Pax**: {reservation['Total Pax']}")
     with cols[1]:
-        st.write(f"**Tariff (per day)**: ₹{reservation['Tariff']:.2f}")
+        st.write(f"**No of Days**: {reservation['No of Days']}")
+        st.write(f"**Tariff**: ₹{reservation['Tariff']:.2f}")
         st.write(f"**Total Tariff**: ₹{reservation['Total Tariff']:.2f}")
         st.write(f"**Advance Amount**: ₹{reservation['Advance Amount']:.2f}")
         st.write(f"**Balance Amount**: ₹{reservation['Balance Amount']:.2f}")
-        st.write(f"**Advance MOP**: {reservation['Advance MOP']}")
-        st.write(f"**Balance MOP**: {reservation['Balance MOP']}")
-        st.write(f"**Breakfast**: {reservation['Breakfast']}")
         st.write(f"**Plan Status**: {reservation['Plan Status']}")
-        st.write(f"**Payment Status**: {reservation['Payment Status']}")
-        st.write(f"**Enquiry Date**: {reservation['Enquiry Date']}")
-        st.write(f"**Booking Date**: {reservation['Booking Date']}")
-        st.write(f"**Invoice No**: {reservation['Invoice No']}")
-        st.write(f"**Submitted By**: {reservation['Submitted By']}")
-        st.write(f"**Modified By**: {reservation['Modified By']}")
-        st.write(f"**Modified Comments**: {reservation['Modified Comments']}")
-        st.write(f"**Remarks**: {reservation['Remarks']}")
     if st.button("Close", use_container_width=True):
-        st.query_params.clear()
+        st.rerun()
+
+@st.dialog("Reservation Confirmation")
+def show_confirmation_dialog(booking_id, is_update=False):
+    """Show confirmation dialog for new or updated reservations."""
+    message = "Reservation Updated!" if is_update else "Reservation Confirmed!"
+    st.markdown(f"**{message}**\n\nBooking ID: {booking_id}")
+    if st.button("✔️ Confirm", use_container_width=True):
         st.rerun()
 
 def group_by_month_and_week(df):
@@ -691,23 +672,27 @@ def show_reservations():
         return
 
     # Create a copy of the dataframe for display
-    display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
+    display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
     
     # Add a button column for clickable Booking IDs
     def view_button(booking_id):
-        return f'<button onclick="window.location.href=\'?view_booking_id={booking_id}\'">View</button>'
+        return f'<button onclick="document.getElementById(\'view-{booking_id}\').click()">View</button>'
     
     display_df["Action"] = display_df["Booking ID"].apply(view_button)
     
     st.dataframe(
-        display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
+        display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
         use_container_width=True,
         column_config={
-            "Action": st.column_config.TextColumn("Action", help="Click to view details"),
+            "Action": st.column_config.TextColumn("Action", help="Click to view particulars"),
             "Booking ID": st.column_config.TextColumn("Booking ID")
         },
         hide_index=True
     )
+    
+    # Hidden buttons to trigger dialog
+    for booking_id in filtered_df["Booking ID"]:
+        st.button("View", key=f"view-{booking_id}", on_click=show_reservation_particulars, args=(next((r for r in st.session_state.reservations if r["Booking ID"] == booking_id), None),), type="primary", help="View reservation details")
 
 def show_edit_reservations():
     """Display reservations for editing with clickable Booking IDs."""
@@ -753,16 +738,16 @@ def show_edit_reservations():
             return
 
         # Create a copy of the dataframe for display
-        display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
+        display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
         
         # Add a button column for clickable Booking IDs
         def edit_button(booking_id):
-            return f'<button onclick="window.location.href=\'?edit_booking_id={booking_id}\'">Edit</button>'
+            return f'<button onclick="document.getElementById(\'edit-{booking_id}\').click()">Edit</button>'
         
         display_df["Action"] = display_df["Booking ID"].apply(edit_button)
         
         st.dataframe(
-            display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
+            display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
             use_container_width=True,
             column_config={
                 "Action": st.column_config.TextColumn("Action", help="Click to edit reservation"),
@@ -770,6 +755,10 @@ def show_edit_reservations():
             },
             hide_index=True
         )
+        
+        # Hidden buttons to trigger dialog
+        for booking_id in filtered_df["Booking ID"]:
+            st.button("Edit", key=f"edit-{booking_id}", on_click=lambda x=booking_id: st.session_state.update({"edit_mode": True, "edit_index": next((i for i, r in enumerate(st.session_state.reservations) if r["Booking ID"] == x), None)}), type="primary", help="Edit reservation")
 
     except Exception as e:
         st.error(f"Error rendering edit reservations: {e}")
@@ -1123,12 +1112,12 @@ if view_booking_id:
     try:
         reservation = next((res for res in st.session_state.reservations if res["Booking ID"] == view_booking_id), None)
         if reservation:
-            show_reservation_details(reservation)
+            show_reservation_particulars(reservation)
         else:
             st.error(f"Reservation with Booking ID {view_booking_id} not found.")
             st.query_params.clear()
     except Exception as e:
-        st.error(f"Error displaying reservation details: {e}")
+        st.error(f"Error displaying reservation particulars: {e}")
         st.query_params.clear()
 
 if edit_booking_id and not view_booking_id:
@@ -1159,3 +1148,4 @@ if not (view_booking_id or edit_booking_id):
         show_edit_reservations()
     elif page == "Analytics":
         show_analytics()
+</xaiArtifact>
