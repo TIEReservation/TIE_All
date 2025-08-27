@@ -690,18 +690,23 @@ def show_reservations():
         st.warning("No reservations match the selected filters.")
         return
 
-    # Create a copy of the dataframe for display with clickable Booking IDs
+    # Create a copy of the dataframe for display
     display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
-    display_df["Booking ID"] = display_df["Booking ID"].apply(lambda x: f'<a href="?view_booking_id={x}">{x}</a>')
-
+    
+    # Add a button column for clickable Booking IDs
+    def view_button(booking_id):
+        return f'<button onclick="window.location.href=\'?view_booking_id={booking_id}\'">View</button>'
+    
+    display_df["Action"] = display_df["Booking ID"].apply(view_button)
+    
     st.dataframe(
-        display_df,
+        display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
         use_container_width=True,
         column_config={
-            "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to view details")
+            "Action": st.column_config.TextColumn("Action", help="Click to view details"),
+            "Booking ID": st.column_config.TextColumn("Booking ID")
         },
-        hide_index=True,
-        unsafe_allow_html=True
+        hide_index=True
     )
 
 def show_edit_reservations():
@@ -747,18 +752,23 @@ def show_edit_reservations():
             st.warning("No reservations match the selected filters.")
             return
 
-        # Create a copy of the dataframe for display with clickable Booking IDs
+        # Create a copy of the dataframe for display
         display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
-        display_df["Booking ID"] = display_df["Booking ID"].apply(lambda x: f'<a href="?edit_booking_id={x}">{x}</a>')
-
+        
+        # Add a button column for clickable Booking IDs
+        def edit_button(booking_id):
+            return f'<button onclick="window.location.href=\'?edit_booking_id={booking_id}\'">Edit</button>'
+        
+        display_df["Action"] = display_df["Booking ID"].apply(edit_button)
+        
         st.dataframe(
-            display_df,
+            display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
             use_container_width=True,
             column_config={
-                "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to edit reservation")
+                "Action": st.column_config.TextColumn("Action", help="Click to edit reservation"),
+                "Booking ID": st.column_config.TextColumn("Booking ID")
             },
-            hide_index=True,
-            unsafe_allow_html=True
+            hide_index=True
         )
 
     except Exception as e:
