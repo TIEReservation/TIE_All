@@ -304,6 +304,48 @@ def show_confirmation_dialog(booking_id, is_update=False):
     if st.button("✔️ Confirm", use_container_width=True):
         st.rerun()
 
+@st.dialog("Reservation Details")
+def show_reservation_details(reservation):
+    """Show detailed view of a reservation."""
+    st.subheader(f"Reservation Details: {reservation['Booking ID']}")
+    cols = st.columns(2)
+    with cols[0]:
+        st.write(f"**Property Name**: {reservation['Property Name']}")
+        st.write(f"**Guest Name**: {reservation['Guest Name']}")
+        st.write(f"**Mobile No**: {reservation['Mobile No']}")
+        st.write(f"**MOB**: {reservation['MOB']}")
+        if reservation['Online Source']:
+            st.write(f"**Online Source**: {reservation['Online Source']}")
+        st.write(f"**Room Type**: {reservation['Room Type']}")
+        st.write(f"**Room No**: {reservation['Room No']}")
+        st.write(f"**Check In**: {reservation['Check In']}")
+        st.write(f"**Check Out**: {reservation['Check Out']}")
+        st.write(f"**No of Days**: {reservation['No of Days']}")
+        st.write(f"**No of Adults**: {reservation['No of Adults']}")
+        st.write(f"**No of Children**: {reservation['No of Children']}")
+        st.write(f"**No of Infants**: {reservation['No of Infants']}")
+        st.write(f"**Total Pax**: {reservation['Total Pax']}")
+    with cols[1]:
+        st.write(f"**Tariff (per day)**: ₹{reservation['Tariff']:.2f}")
+        st.write(f"**Total Tariff**: ₹{reservation['Total Tariff']:.2f}")
+        st.write(f"**Advance Amount**: ₹{reservation['Advance Amount']:.2f}")
+        st.write(f"**Balance Amount**: ₹{reservation['Balance Amount']:.2f}")
+        st.write(f"**Advance MOP**: {reservation['Advance MOP']}")
+        st.write(f"**Balance MOP**: {reservation['Balance MOP']}")
+        st.write(f"**Breakfast**: {reservation['Breakfast']}")
+        st.write(f"**Plan Status**: {reservation['Plan Status']}")
+        st.write(f"**Payment Status**: {reservation['Payment Status']}")
+        st.write(f"**Enquiry Date**: {reservation['Enquiry Date']}")
+        st.write(f"**Booking Date**: {reservation['Booking Date']}")
+        st.write(f"**Invoice No**: {reservation['Invoice No']}")
+        st.write(f"**Submitted By**: {reservation['Submitted By']}")
+        st.write(f"**Modified By**: {reservation['Modified By']}")
+        st.write(f"**Modified Comments**: {reservation['Modified Comments']}")
+        st.write(f"**Remarks**: {reservation['Remarks']}")
+    if st.button("Close", use_container_width=True):
+        st.query_params.clear()
+        st.rerun()
+
 def group_by_month_and_week(df):
     """Group reservations by month and week for analytics."""
     df = df.copy()
@@ -610,7 +652,7 @@ def show_new_reservation_form():
         st.error(f"Error rendering new reservation form: {e}")
 
 def show_reservations():
-    """Display all reservations with filtering options."""
+    """Display all reservations with filtering options and clickable Booking IDs."""
     if not st.session_state.reservations:
         st.info("No reservations available.")
         return
@@ -648,13 +690,23 @@ def show_reservations():
         st.warning("No reservations match the selected filters.")
         return
 
+    # Create a copy of the dataframe for display with clickable Booking IDs
+    display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
+    display_df["Booking ID"] = display_df["Booking ID"].apply(lambda x: f'<a href="?view_booking_id={x}">{x}</a>')
+
     st.dataframe(
-        filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
-        use_container_width=True
+        display_df,
+        use_container_width=True,
+        column_config={
+            "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to view details")
+        },
+        hide_index=True,
+        use_container=True,
+        unsafe_allow_html=True
     )
 
 def show_edit_reservations():
-    """Display reservations for editing with filtering options."""
+    """Display reservations for editing with clickable Booking IDs."""
     try:
         st.header("✏️ Edit Reservations")
         if not st.session_state.reservations:
@@ -696,19 +748,21 @@ def show_edit_reservations():
             st.warning("No reservations match the selected filters.")
             return
 
+        # Create a copy of the dataframe for display with clickable Booking IDs
+        display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
+        display_df["Booking ID"] = display_df["Booking ID"].apply(lambda x: f'<a href="?edit_booking_id={x}">{x}</a>')
+
         st.dataframe(
-            filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
-            use_container_width=True
+            display_df,
+            use_container_width=True,
+            column_config={
+                "Booking ID": st.column_config.TextColumn("Booking ID", help="Click to edit reservation")
+            },
+            hide_index=True,
+            use_container=True,
+            unsafe_allow_html=True
         )
 
-        booking_ids = filtered_df["Booking ID"].tolist()
-        selected_booking_id = st.selectbox("Select Booking ID to Edit", ["None"] + booking_ids, key="edit_booking_id")
-
-        if selected_booking_id != "None":
-            edit_index = next(i for i, res in enumerate(st.session_state.reservations) if res["Booking ID"] == selected_booking_id)
-            st.session_state.edit_mode = True
-            st.session_state.edit_index = edit_index
-            show_edit_form(edit_index)
     except Exception as e:
         st.error(f"Error rendering edit reservations: {e}")
 
@@ -951,6 +1005,7 @@ def show_edit_form(edit_index):
                             st.session_state.reservations[edit_index] = updated_reservation
                             st.session_state.edit_mode = False
                             st.session_state.edit_index = None
+                            st.query_params.clear()
                             st.success(f"✅ Reservation {reservation['Booking ID']} updated successfully!")
                             show_confirmation_dialog(reservation["Booking ID"], is_update=True)
                         else:
@@ -962,6 +1017,7 @@ def show_edit_form(edit_index):
                         st.session_state.reservations.pop(edit_index)
                         st.session_state.edit_mode = False
                         st.session_state.edit_index = None
+                        st.query_params.clear()
                         st.success(f"🗑️ Reservation {reservation['Booking ID']} deleted successfully!")
                         st.rerun()
                     else:
@@ -1050,16 +1106,48 @@ if "edit_index" not in st.session_state:
 
 st.title("🏨 Direct Reservation System")
 
+# Handle query parameters for viewing or editing
+query_params = st.query_params
+view_booking_id = query_params.get("view_booking_id")
+edit_booking_id = query_params.get("edit_booking_id")
+
+if view_booking_id:
+    try:
+        reservation = next((res for res in st.session_state.reservations if res["Booking ID"] == view_booking_id), None)
+        if reservation:
+            show_reservation_details(reservation)
+        else:
+            st.error(f"Reservation with Booking ID {view_booking_id} not found.")
+            st.query_params.clear()
+    except Exception as e:
+        st.error(f"Error displaying reservation details: {e}")
+        st.query_params.clear()
+
+if edit_booking_id and not view_booking_id:
+    try:
+        edit_index = next((i for i, res in enumerate(st.session_state.reservations) if res["Booking ID"] == edit_booking_id), None)
+        if edit_index is not None:
+            st.session_state.edit_mode = True
+            st.session_state.edit_index = edit_index
+            show_edit_form(edit_index)
+        else:
+            st.error(f"Reservation with Booking ID {edit_booking_id} not found.")
+            st.query_params.clear()
+    except Exception as e:
+        st.error(f"Error loading edit form: {e}")
+        st.query_params.clear()
+
 # Sidebar navigation
 with st.sidebar:
     page = st.selectbox("Select Page", ["New Reservation", "View Reservations", "Edit Reservations", "Analytics"], key="page_select")
 
 # Render selected page
-if page == "New Reservation":
-    show_new_reservation_form()
-elif page == "View Reservations":
-    show_reservations()
-elif page == "Edit Reservations":
-    show_edit_reservations()
-elif page == "Analytics":
-    show_analytics()
+if not (view_booking_id or edit_booking_id):
+    if page == "New Reservation":
+        show_new_reservation_form()
+    elif page == "View Reservations":
+        show_reservations()
+    elif page == "Edit Reservations":
+        show_edit_reservations()
+    elif page == "Analytics":
+        show_analytics()
