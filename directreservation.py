@@ -185,8 +185,8 @@ def load_reservations_from_supabase():
                 "Submitted By": record.get("submitted_by", ""),
                 "Modified By": record.get("modified_by", ""),
                 "Modified Comments": record.get("modified_comments", ""),
-                "Remarks": record.get("remarks", ""),  # New field: Remarks, default to empty string
-                "Payment Status": record.get("payment_status", "Not Paid")  # New field: Payment Status, default to "Not Paid"
+                "Remarks": record.get("remarks", ""),
+                "Payment Status": record.get("payment_status", "Not Paid")
             }
             reservations.append(reservation)
         return reservations
@@ -227,8 +227,8 @@ def save_reservation_to_supabase(reservation):
             "submitted_by": reservation["Submitted By"],
             "modified_by": reservation["Modified By"],
             "modified_comments": reservation["Modified Comments"],
-            "remarks": reservation["Remarks"],  # New field: Remarks
-            "payment_status": reservation["Payment Status"]  # New field: Payment Status
+            "remarks": reservation["Remarks"],
+            "payment_status": reservation["Payment Status"]
         }
         response = supabase.table("reservations").insert(supabase_reservation).execute()
         if response.data:
@@ -272,8 +272,8 @@ def update_reservation_in_supabase(booking_id, updated_reservation):
             "submitted_by": updated_reservation["Submitted By"],
             "modified_by": updated_reservation["Modified By"],
             "modified_comments": updated_reservation["Modified Comments"],
-            "remarks": updated_reservation["Remarks"],  # New field: Remarks
-            "payment_status": updated_reservation["Payment Status"]  # New field: Payment Status
+            "remarks": updated_reservation["Remarks"],
+            "payment_status": updated_reservation["Payment Status"]
         }
         response = supabase.table("reservations").update(supabase_reservation).eq("booking_id", booking_id).execute()
         if response.data:
@@ -506,7 +506,6 @@ def show_new_reservation_form():
             online_source = None
             custom_online_source = None
         if st.button("💾 Save Reservation", use_container_width=True):
-            # Validation and saving logic remains the same
             if not all([property_name, room_no, guest_name, mobile_no]):
                 st.error("❌ Please fill in all required fields")
             elif check_out < check_in:
@@ -629,7 +628,43 @@ def show_edit_reservations():
         with col4:
             filter_enquiry_date = st.date_input("Enquiry Date", value=None, key="edit_filter_enquiry_date")
         with col5:
-            filter_booking_date = st.date_inputブックコード
+            filter_booking_date = st.date_input("Booking Date", value=None, key="edit_filter_booking_date")
+        with col6:
+            filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="edit_filter_property")
+
+        filtered_df = df.copy()
+        if filter_status != "All":
+            filtered_df = filtered_df[filtered_df["Plan Status"] == filter_status]
+        if filter_check_in_date:
+            filtered_df = filtered_df[filtered_df["Check In"] == filter_check_in_date]
+        if filter_check_out_date:
+            filtered_df = filtered_df[filtered_df["Check Out"] == filter_check_out_date]
+        if filter_enquiry_date:
+            filtered_df = filtered_df[filtered_df["Enquiry Date"] == filter_enquiry_date]
+        if filter_booking_date:
+            filtered_df = filtered_df[filtered_df["Booking Date"] == filter_booking_date]
+        if filter_property != "All":
+            filtered_df = filtered_df[filtered_df["Property Name"] == filter_property]
+
+        if filtered_df.empty:
+            st.warning("No reservations match the selected filters.")
+            return
+
+        st.dataframe(
+            filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
+            use_container_width=True
+        )
+
+        # Select reservation to edit
+        booking_id = st.selectbox("Select Booking ID to Edit", filtered_df["Booking ID"].tolist(), key="edit_booking_id")
+        if booking_id:
+            edit_index = filtered_df[filtered_df["Booking ID"] == booking_id].index[0]
+            st.session_state.edit_mode = True
+            st.session_state.edit_index = edit_index
+            show_edit_form(edit_index)
+
+    except Exception as e:
+        st.error(f"Error rendering edit reservations: {e}")
 
 def show_edit_form(edit_index):
     """Display form for editing an existing reservation with dynamic room assignments."""
@@ -638,16 +673,58 @@ def show_edit_form(edit_index):
         reservation = st.session_state.reservations[edit_index]
         form_key = f"edit_reservation_{edit_index}"
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Use properties from load_property_room_map, add Property 16 if in reservation
+        # Initialize session state for dynamic updates
+        if f"{form_key}_property" not in st.session_state:
+            st.session_state[f"{form_key}_property"] = reservation["Property Name"]
+        if f"{form_key}_roomtype" not in st.session_state:
+            st.session_state[f"{form_key}_roomtype"] = reservation["Room Type"]
+
+        # Row 1: Property Name, Guest Name, Mobile No
+        row1_col1, row1_col2, row1_col3 = st.columns(3)
+        with row1_col1:
             property_options = sorted(load_property_room_map().keys())
             if reservation["Property Name"] == "Property 16":
                 property_options = sorted(property_options + ["Property 16"])
             property_index = property_options.index(reservation["Property Name"]) if reservation["Property Name"] in property_options else 0
-            property_name = st.selectbox("Property Name", property_options, index=property_index, key=f"{form_key}_property")
-            
-            # Dynamic room types, handle existing if not in list by setting to "Other"
+            property_name = st.selectbox("Property Name", property_options, index=property_index,
+                                        key=f"{form_key}_property",
+                                        on_change=lambda: st.session_state.update({f"{form_key}_roomtype": ""}))
+        with row1_col2:
+            guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
+        with row1_col3:
+            mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
+
+        # Row 2: Enquiry Date, Check In, Check Out, No of Days
+        row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
+        with row2_col1:
+            enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"], key=f"{form_key}_enquiry")
+        with row2_col2:
+            check_in = st.date_input("Check In", value=reservation["Check In"], key=f"{form_key}_checkin")
+        with row2_col3:
+            check_out = st.date_input("Check Out", value=reservation["Check Out"], key=f"{form_key}_checkout")
+        with row2_col4:
+            no_of_days = calculate_days(check_in, check_out)
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+
+        # Row 3: No of Adults, No of Children, No of Infants, Breakfast
+        row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
+        with row3_col1:
+            adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"], key=f"{form_key}_adults")
+        with row3_col2:
+            children = st.number_input("No of Children", min_value=0, value=reservation["No of Children"], key=f"{form_key}_children")
+        with row3_col3:
+            infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"], key=f"{form_key}_infants")
+        with row3_col4:
+            breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
+
+        # Row 4: Total Pax, No of Days, Room Type, Room No
+        row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
+        with row4_col1:
+            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+        with row4_col2:
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+        with row4_col3:
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
             is_custom_type = reservation["Room Type"] not in available_room_types or not reservation["Room Type"]
@@ -658,8 +735,7 @@ def show_edit_form(edit_index):
                 custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
             else:
                 custom_room_type = None
-            
-            # Dynamic room numbers, augment with existing if not in list and not None
+        with row4_col4:
             available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
             existing_room_no = reservation["Room No"] or ""
             if existing_room_no and existing_room_no not in available_rooms:
@@ -670,26 +746,14 @@ def show_edit_form(edit_index):
             else:
                 st.warning("No rooms available for this room type. Enter manually.")
                 room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room")
-            
-            guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
-            mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
-        with col2:
-            adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"], key=f"{form_key}_adults")
-            children = st.number_input("No of Children", min_value=0, value=reservation["No of Children"], key=f"{form_key}_children")
-            infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"], key=f"{form_key}_infants")
-            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
-        with col3:
-            check_in = st.date_input("Check In", value=reservation["Check In"], key=f"{form_key}_checkin")
-            check_out = st.date_input("Check Out", value=reservation["Check Out"], key=f"{form_key}_checkout")
-            no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
 
-        col4, col5 = st.columns(2)
-        with col4:
+        # Row 5: Tariff (per day), Advance Amount, Advance MOP
+        row5_col1, row5_col2, row5_col3 = st.columns(3)
+        with row5_col1:
             tariff = st.number_input("Tariff (per day)", min_value=0.0, value=reservation["Tariff"], step=100.0, key=f"{form_key}_tariff")
-            total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+        with row5_col2:
+            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
+        with row5_col3:
             advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
             advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
@@ -697,6 +761,16 @@ def show_edit_form(edit_index):
                 custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation["Advance MOP"] if advance_mop_index == len(advance_mop_options) - 1 else "", key=f"{form_key}_custom_advmop")
             else:
                 custom_advance_mop = None
+
+        # Row 6: Total Tariff, Balance Amount, Balance MOP
+        row6_col1, row6_col2, row6_col3 = st.columns(3)
+        with row6_col1:
+            total_tariff = safe_float(tariff) * max(0, no_of_days)
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+        with row6_col2:
+            balance_amount = max(0, total_tariff - safe_float(advance_amount))
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+        with row6_col3:
             balance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]
             balance_mop_index = balance_mop_options.index(reservation["Balance MOP"]) if reservation["Balance MOP"] in balance_mop_options else len(balance_mop_options) - 1
             balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_index, key=f"{form_key}_balmop")
@@ -704,10 +778,30 @@ def show_edit_form(edit_index):
                 custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation["Balance MOP"] if balance_mop_index == len(balance_mop_options) - 1 else "", key=f"{form_key}_custom_balmop")
             else:
                 custom_balance_mop = None
-        with col5:
-            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
-            balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+
+        # Row 7: Booking Date, Invoice No, Plan Status
+        row7_col1, row7_col2, row7_col3 = st.columns(3)
+        with row7_col1:
+            booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
+        with row7_col2:
+            invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
+        with row7_col3:
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
+
+        # Row 8: Remarks
+        row8_col1, = st.columns(1)
+        with row8_col1:
+            remarks = st.text_area("Remarks", value=reservation["Remarks"], key=f"{form_key}_remarks")
+
+        # Row 9: Payment Status, Submitted By, MOB
+        row9_col1, row9_col2, row9_col3 = st.columns(3)
+        with row9_col1:
+            payment_status_options = ["Fully Paid", "Partially Paid", "Not Paid"]
+            payment_status_index = payment_status_options.index(reservation["Payment Status"]) if reservation["Payment Status"] in payment_status_options else 2
+            payment_status = st.selectbox("Payment Status", payment_status_options, index=payment_status_index, key=f"{form_key}_payment_status")
+        with row9_col2:
+            submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"], key=f"{form_key}_submitted_by")
+        with row9_col3:
             mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
             mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
             mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
@@ -715,7 +809,11 @@ def show_edit_form(edit_index):
                 custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
             else:
                 custom_mob = None
-            if mob == "Online":
+
+        # Online Source (conditionally shown when MOB is Online)
+        if mob == "Online":
+            row10_col1, = st.columns(1)
+            with row10_col1:
                 online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
                 online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
                 online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
@@ -723,27 +821,16 @@ def show_edit_form(edit_index):
                     custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
                 else:
                     custom_online_source = None
-            else:
-                online_source = None
-                custom_online_source = None
-            invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
+        else:
+            online_source = None
+            custom_online_source = None
 
-        col6, col7 = st.columns(2)
-        with col6:
-            enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"], key=f"{form_key}_enquiry")
-            booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
-            submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"], key=f"{form_key}_submitted_by")
-        with col7:
-            breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
+        # Row 10: Modified By, Modified Comments
+        row10_col1, row10_col2 = st.columns(2)
+        with row10_col1:
             modified_by = st.text_input("Modified By", value=reservation["Modified By"], key=f"{form_key}_modified_by")
+        with row10_col2:
             modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"], key=f"{form_key}_modified_comments")
-
-        # New fields: Remarks and Payment Status
-        remarks = st.text_area("Remarks", value=reservation["Remarks"], key=f"{form_key}_remarks")  # New text field for Remarks
-        payment_status_options = ["Fully Paid", "Partially Paid", "Not Paid"]
-        payment_status_index = payment_status_options.index(reservation["Payment Status"]) if reservation["Payment Status"] in payment_status_options else 2  # Default to "Not Paid"
-        payment_status = st.selectbox("Payment Status", payment_status_options, index=payment_status_index, key=f"{form_key}_payment_status")
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
@@ -790,8 +877,8 @@ def show_edit_form(edit_index):
                             "Submitted By": submitted_by,
                             "Modified By": modified_by,
                             "Modified Comments": modified_comments,
-                            "Remarks": remarks,  # New field: Remarks
-                            "Payment Status": payment_status  # New field: Payment Status
+                            "Remarks": remarks,
+                            "Payment Status": payment_status
                         }
                         if update_reservation_in_supabase(reservation["Booking ID"], updated_reservation):
                             st.session_state.reservations[edit_index] = updated_reservation
@@ -858,7 +945,6 @@ def show_analytics():
         st.warning("No reservations match the selected filters.")
         return
 
-    # Visualizations moved here with unique keys
     st.subheader("Visualizations")
     col1, col2 = st.columns(2)
     with col1:
