@@ -150,7 +150,7 @@ def safe_float(value, default=0.0):
         return default
 
 def load_reservations_from_supabase():
-    """Load reservations from Supabase, handling potential None values and missing columns."""
+    """Load reservations from Supabase, handling potential None values."""
     try:
         response = supabase.table("reservations").select("*").execute()
         reservations = []
@@ -185,14 +185,12 @@ def load_reservations_from_supabase():
                 "Submitted By": record.get("submitted_by", ""),
                 "Modified By": record.get("modified_by", ""),
                 "Modified Comments": record.get("modified_comments", ""),
-                "Remarks": record.get("remarks", ""),
-                "Payment Status": record.get("payment_status", "Not Paid")
+                "Remarks": record.get("remarks", ""),  # New field: Remarks, default to empty string
+                "Payment Status": record.get("payment_status", "Not Paid")  # New field: Payment Status, default to "Not Paid"
             }
             reservations.append(reservation)
         return reservations
     except Exception as e:
-        if "column" in str(e).lower() and ("remarks" in str(e).lower() or "payment_status" in str(e).lower()):
-            st.warning("⚠️ Database schema missing 'remarks' or 'payment_status' columns. Please run the schema update SQL.")
         st.error(f"Error loading reservations: {e}")
         return []
 
@@ -229,8 +227,8 @@ def save_reservation_to_supabase(reservation):
             "submitted_by": reservation["Submitted By"],
             "modified_by": reservation["Modified By"],
             "modified_comments": reservation["Modified Comments"],
-            "remarks": reservation["Remarks"],
-            "payment_status": reservation["Payment Status"]
+            "remarks": reservation["Remarks"],  # New field: Remarks
+            "payment_status": reservation["Payment Status"]  # New field: Payment Status
         }
         response = supabase.table("reservations").insert(supabase_reservation).execute()
         if response.data:
@@ -274,8 +272,8 @@ def update_reservation_in_supabase(booking_id, updated_reservation):
             "submitted_by": updated_reservation["Submitted By"],
             "modified_by": updated_reservation["Modified By"],
             "modified_comments": updated_reservation["Modified Comments"],
-            "remarks": updated_reservation["Remarks"],
-            "payment_status": updated_reservation["Payment Status"]
+            "remarks": updated_reservation["Remarks"],  # New field: Remarks
+            "payment_status": updated_reservation["Payment Status"]  # New field: Payment Status
         }
         response = supabase.table("reservations").update(supabase_reservation).eq("booking_id", booking_id).execute()
         if response.data:
@@ -296,29 +294,6 @@ def delete_reservation_in_supabase(booking_id):
         st.error(f"Error deleting reservation: {e}")
         return False
 
-@st.dialog("Reservation Particulars")
-def show_reservation_particulars(reservation):
-    """Display detailed reservation particulars in a dialog."""
-    st.subheader(f"Reservation Details: {reservation['Booking ID']}")
-    cols = st.columns(2)
-    with cols[0]:
-        st.write(f"**Property Name**: {reservation['Property Name']}")
-        st.write(f"**Guest Name**: {reservation['Guest Name']}")
-        st.write(f"**Mobile No**: {reservation['Mobile No']}")
-        st.write(f"**MOB**: {reservation['MOB']}")
-        st.write(f"**Room No**: {reservation['Room No']}")
-        st.write(f"**Check In**: {reservation['Check In']}")
-        st.write(f"**Check Out**: {reservation['Check Out']}")
-    with cols[1]:
-        st.write(f"**No of Days**: {reservation['No of Days']}")
-        st.write(f"**Tariff**: ₹{reservation['Tariff']:.2f}")
-        st.write(f"**Total Tariff**: ₹{reservation['Total Tariff']:.2f}")
-        st.write(f"**Advance Amount**: ₹{reservation['Advance Amount']:.2f}")
-        st.write(f"**Balance Amount**: ₹{reservation['Balance Amount']:.2f}")
-        st.write(f"**Plan Status**: {reservation['Plan Status']}")
-    if st.button("Close", use_container_width=True):
-        st.rerun()
-
 @st.dialog("Reservation Confirmation")
 def show_confirmation_dialog(booking_id, is_update=False):
     """Show confirmation dialog for new or updated reservations."""
@@ -327,21 +302,19 @@ def show_confirmation_dialog(booking_id, is_update=False):
     if st.button("✔️ Confirm", use_container_width=True):
         st.rerun()
 
-def group_by_month_and_week(df):
-    """Group reservations by month and week for analytics."""
-    df = df.copy()
-    df['Check In'] = pd.to_datetime(df['Check In'])
-    df['Month'] = df['Check In'].dt.to_period('M').astype(str)
-    df['Year'] = df['Check In'].dt.year
-    df['Week'] = df['Check In'].dt.isocalendar().week
-    df['Week'] = df['Year'].astype(str) + '-W' + df['Week'].apply(lambda x: f'{x:02d}')
-    month_groups = df.groupby('Month')
-    week_groups = df.groupby('Week')
-    return month_groups, week_groups
-
 def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=False):
-    """Filter reservations and display results, including month-wise and week-wise details."""
+    """
+    Filter reservations by date range and display results.
+    Args:
+        df (pd.DataFrame): Reservations DataFrame.
+        start_date (date, optional): Start of the date range.
+        end_date (date, optional): End of the date range.
+        view_mode (bool): If True, return filtered DataFrame for table display; else, display metrics and property-wise details.
+    Returns:
+        pd.DataFrame: Filtered DataFrame.
+    """
     filtered_df = df.copy()
+    # Filter out invalid Check In dates
     filtered_df = filtered_df[filtered_df["Check In"].notnull()]
     
     if start_date and end_date:
@@ -374,29 +347,25 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
             balance_pending = filtered_df[filtered_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
             st.metric("Balance Pending", f"₹{balance_pending:,.2f}")
 
-        # Month-wise and week-wise details
-        month_groups, week_groups = group_by_month_and_week(filtered_df)
-        
-        st.subheader("Month-wise Reservation Details")
-        for month, group_df in sorted(month_groups):
-            with st.expander(f"Month: {month}"):
-                st.write(f"**Total Reservations**: {len(group_df)}")
-                st.write(f"**Total Revenue**: ₹{group_df['Total Tariff'].sum():,.2f}")
+        st.subheader("Property-wise Reservation Details")
+        properties = sorted(filtered_df["Property Name"].unique())
+        for property in properties:
+            with st.expander(f"{property} Reservations"):
+                property_df = filtered_df[filtered_df["Property Name"] == property]
+                st.write(f"**Total Reservations**: {len(property_df)}")
+                total_revenue = property_df["Total Tariff"].sum()
+                st.write(f"**Total Revenue**: ₹{total_revenue:,.2f}")
+                total_collected = property_df["Advance Amount"].sum() + property_df[property_df["Plan Status"] == "Completed"]["Balance Amount"].sum()
+                st.write(f"**Total Revenue Collected**: ₹{total_collected:,.2f}")
+                balance_pending = property_df[property_df["Plan Status"] != "Completed"]["Balance Amount"].sum()
+                st.write(f"**Balance Pending**: ₹{balance_pending:,.2f}")
+                st.write(f"**Average Tariff**: ₹{property_df['Tariff'].mean():,.2f}" if not property_df.empty else "₹0.00")
+                st.write(f"**Average Stay**: {property_df['No of Days'].mean():.1f} days" if not property_df.empty else "0.0 days")
                 st.dataframe(
-                    group_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "Payment Status"]],
+                    property_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "MOB", "Payment Status", "Remarks"]],
                     use_container_width=True
                 )
-        
-        st.subheader("Week-wise Reservation Details")
-        for week, group_df in sorted(week_groups):
-            with st.expander(f"Week: {week}"):
-                st.write(f"**Total Reservations**: {len(group_df)}")
-                st.write(f"**Total Revenue**: ₹{group_df['Total Tariff'].sum():,.2f}")
-                st.dataframe(
-                    group_df[["Booking ID", "Guest Name", "Room No", "Check In", "Check Out", "Total Tariff", "Plan Status", "Payment Status"]],
-                    use_container_width=True
-                )
-
+    
     return filtered_df
 
 def show_new_reservation_form():
@@ -405,174 +374,101 @@ def show_new_reservation_form():
         st.header("📝 Direct Reservations")
         form_key = "new_reservation"
 
-        # Row 1: Property Name, Guest Name, Mobile No, MOB (Mode of Booking)
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                property_options = sorted(load_property_room_map().keys())
-                property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
-            with cols[1]:
-                guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
-            with cols[2]:
-                mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
-            with cols[3]:
-                mob = st.selectbox("MOB (Mode of Booking)",
-                                   ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
-                                   key=f"{form_key}_mob")
-                if mob == "Others":
-                    custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            # Use properties from load_property_room_map
+            property_options = sorted(load_property_room_map().keys())
+            property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
+            
+            # Dynamic room types based on property
+            room_map = load_property_room_map()
+            available_room_types = sorted(room_map.get(property_name, {}).keys())
+            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
+            if not available_room_types:
+                st.warning("No room types available for this property. Use 'Other'.")
+            room_type = st.selectbox("Room Type", room_type_options, key=f"{form_key}_roomtype")
+            if room_type == "Other":
+                custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
+            else:
+                custom_room_type = None
+            
+            # Dynamic room numbers based on property and room type
+            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
+            if available_rooms:
+                room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
+            else:
+                st.warning("No rooms available for this room type. Enter manually.")
+                room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
+            
+            guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
+            mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
+        with col2:
+            adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
+            children = st.number_input("No of Children", min_value=0, value=0, key=f"{form_key}_children")
+            infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
+            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+        with col3:
+            check_in = st.date_input("Check In", value=date.today(), key=f"{form_key}_checkin")
+            check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
+            no_of_days = calculate_days(check_in, check_out)
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+
+        col4, col5 = st.columns(2)
+        with col4:
+            tariff = st.number_input("Tariff (per day)", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_tariff")
+            total_tariff = safe_float(tariff) * max(0, no_of_days)
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+            advance_mop = st.selectbox("Advance MOP",
+                                       ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"],
+                                       key=f"{form_key}_advmop")
+            if advance_mop == "Other":
+                custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
+            else:
+                custom_advance_mop = None
+            balance_mop = st.selectbox("Balance MOP",
+                                       ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"],
+                                       key=f"{form_key}_balmop")
+            if balance_mop == "Other":
+                custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
+            else:
+                custom_balance_mop = None
+        with col5:
+            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_advance")
+            balance_amount = max(0, total_tariff - safe_float(advance_amount))
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+            mob = st.selectbox("MOB (Mode of Booking)",
+                               ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
+                               key=f"{form_key}_mob")
+            if mob == "Others":
+                custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
+            else:
+                custom_mob = None
+            if mob == "Online":
+                online_source = st.selectbox("Online Source",
+                                             ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
+                                             key=f"{form_key}_online_source")
+                if online_source == "Others":
+                    custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
                 else:
-                    custom_mob = None
-                if mob == "Online":
-                    online_source = st.selectbox("Online Source",
-                                                 ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
-                                                 key=f"{form_key}_online_source")
-                    if online_source == "Others":
-                        custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
-                    else:
-                        custom_online_source = None
-                else:
-                    online_source = None
                     custom_online_source = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
+            else:
+                online_source = None
+                custom_online_source = None
+            invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
 
-        # Row 2: Enquiry Date, Check In, Check Out, No of Days
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
-            with cols[1]:
-                check_in = st.date_input("Check In", value=date.today(), key=f"{form_key}_checkin")
-            with cols[2]:
-                check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
-            with cols[3]:
-                no_of_days = calculate_days(check_in, check_out)
-                st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
+        col6, col7 = st.columns(2)
+        with col6:
+            enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
+            booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
+        with col7:
+            breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
+            submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
 
-        # Row 3: No of Adults, No of Children, No of Infants, Breakfast
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
-            with cols[1]:
-                children = st.number_input("No of Children", min_value=0, value=0, key=f"{form_key}_children")
-            with cols[2]:
-                infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
-            with cols[3]:
-                breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 4: Total Pax, No of Days, Room Type, Room No
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-                st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants", key=f"{form_key}_pax")
-            with cols[1]:
-                st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days2")
-            with cols[2]:
-                room_map = load_property_room_map()
-                available_room_types = sorted(room_map.get(property_name, {}).keys())
-                room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
-                if not available_room_types:
-                    st.warning("No room types available for this property. Use 'Other'.")
-                room_type = st.selectbox("Room Type", room_type_options, key=f"{form_key}_roomtype")
-            with cols[3]:
-                available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
-                if available_rooms:
-                    room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
-                else:
-                    st.warning("No rooms available for this room type. Enter manually.")
-                    room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-        if room_type == "Other":
-            custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
-        else:
-            custom_room_type = None
-
-        # Row 5: Tariff (per day), Advance Amount, Advance MOP
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                tariff = st.number_input("Tariff (per day)", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_tariff")
-            with cols[1]:
-                advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_advance")
-            with cols[2]:
-                advance_mop = st.selectbox("Advance MOP",
-                                           ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"],
-                                           key=f"{form_key}_advmop")
-                if advance_mop == "Other":
-                    custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
-                else:
-                    custom_advance_mop = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 6: Total Tariff, Balance Amount, Balance MOP
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                total_tariff = safe_float(tariff) * max(0, no_of_days)
-                st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days", key=f"{form_key}_total_tariff")
-            with cols[1]:
-                balance_amount = max(0, total_tariff - safe_float(advance_amount))
-                st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount", key=f"{form_key}_balance")
-            with cols[2]:
-                balance_mop = st.selectbox("Balance MOP",
-                                           ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"],
-                                           key=f"{form_key}_balmop")
-                if balance_mop == "Other":
-                    custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
-                else:
-                    custom_balance_mop = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 7: Booking Date, Invoice No, Plan Status
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
-            with cols[1]:
-                invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
-            with cols[2]:
-                plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 8: Remarks
-        try:
-            cols = st.columns(1)
-            with cols[0]:
-                remarks = st.text_area("Remarks", placeholder="Additional notes about the reservation", key=f"{form_key}_remarks")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 9: Payment Status, Submitted By
-        try:
-            cols = st.columns(2)
-            with cols[0]:
-                payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")
-            with cols[1]:
-                submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        st.markdown("---")  # Separator before submit button
+        # New fields: Remarks and Payment Status
+        remarks = st.text_area("Remarks", value="", key=f"{form_key}_remarks")  # New text field for Remarks
+        payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")  # Default to "Not Paid"
 
         if st.button("💾 Save Reservation", use_container_width=True):
             if not all([property_name, room_no, guest_name, mobile_no]):
@@ -621,8 +517,8 @@ def show_new_reservation_form():
                         "Submitted By": submitted_by,
                         "Modified By": "",
                         "Modified Comments": "",
-                        "Remarks": remarks,
-                        "Payment Status": payment_status
+                        "Remarks": remarks,  # New field: Remarks
+                        "Payment Status": payment_status  # New field: Payment Status
                     }
                     if save_reservation_to_supabase(reservation):
                         st.success(f"✅ Reservation {booking_id} created successfully!")
@@ -633,7 +529,7 @@ def show_new_reservation_form():
         st.error(f"Error rendering new reservation form: {e}")
 
 def show_reservations():
-    """Display all reservations with filtering options and clickable Booking IDs."""
+    """Display all reservations with filtering options."""
     if not st.session_state.reservations:
         st.info("No reservations available.")
         return
@@ -671,31 +567,13 @@ def show_reservations():
         st.warning("No reservations match the selected filters.")
         return
 
-    # Create a copy of the dataframe for display
-    display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
-    
-    # Add a button column for clickable Booking IDs
-    def view_button(booking_id):
-        return f'<button onclick="document.getElementById(\'view-{booking_id}\').click()">View</button>'
-    
-    display_df["Action"] = display_df["Booking ID"].apply(view_button)
-    
     st.dataframe(
-        display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
-        use_container_width=True,
-        column_config={
-            "Action": st.column_config.TextColumn("Action", help="Click to view particulars"),
-            "Booking ID": st.column_config.TextColumn("Booking ID")
-        },
-        hide_index=True
+        filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
+        use_container_width=True
     )
-    
-    # Hidden buttons to trigger dialog
-    for booking_id in filtered_df["Booking ID"]:
-        st.button("View", key=f"view-{booking_id}", on_click=show_reservation_particulars, args=(next((r for r in st.session_state.reservations if r["Booking ID"] == booking_id), None),), type="primary", help="View reservation details")
 
 def show_edit_reservations():
-    """Display reservations for editing with clickable Booking IDs."""
+    """Display reservations for editing with filtering options."""
     try:
         st.header("✏️ Edit Reservations")
         if not st.session_state.reservations:
@@ -737,29 +615,19 @@ def show_edit_reservations():
             st.warning("No reservations match the selected filters.")
             return
 
-        # Create a copy of the dataframe for display
-        display_df = filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]].copy()
-        
-        # Add a button column for clickable Booking IDs
-        def edit_button(booking_id):
-            return f'<button onclick="document.getElementById(\'edit-{booking_id}\').click()">Edit</button>'
-        
-        display_df["Action"] = display_df["Booking ID"].apply(edit_button)
-        
         st.dataframe(
-            display_df[["Action", "Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Property Name", "MOB", "Check In", "Check Out", "Plan Status", "Remarks", "Payment Status"]],
-            use_container_width=True,
-            column_config={
-                "Action": st.column_config.TextColumn("Action", help="Click to edit reservation"),
-                "Booking ID": st.column_config.TextColumn("Booking ID")
-            },
-            hide_index=True
+            filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
+            use_container_width=True
         )
-        
-        # Hidden buttons to trigger dialog
-        for booking_id in filtered_df["Booking ID"]:
-            st.button("Edit", key=f"edit-{booking_id}", on_click=lambda x=booking_id: st.session_state.update({"edit_mode": True, "edit_index": next((i for i, r in enumerate(st.session_state.reservations) if r["Booking ID"] == x), None)}), type="primary", help="Edit reservation")
 
+        booking_ids = filtered_df["Booking ID"].tolist()
+        selected_booking_id = st.selectbox("Select Booking ID to Edit", ["None"] + booking_ids, key="edit_booking_id")
+
+        if selected_booking_id != "None":
+            edit_index = next(i for i, res in enumerate(st.session_state.reservations) if res["Booking ID"] == selected_booking_id)
+            st.session_state.edit_mode = True
+            st.session_state.edit_index = edit_index
+            show_edit_form(edit_index)
     except Exception as e:
         st.error(f"Error rendering edit reservations: {e}")
 
@@ -770,185 +638,116 @@ def show_edit_form(edit_index):
         reservation = st.session_state.reservations[edit_index]
         form_key = f"edit_reservation_{edit_index}"
 
-        # Row 1: Property Name, Guest Name, Mobile No, MOB (Mode of Booking)
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                property_options = sorted(load_property_room_map().keys())
-                if reservation["Property Name"] == "Property 16":
-                    property_options = sorted(property_options + ["Property 16"])
-                property_index = property_options.index(reservation["Property Name"]) if reservation["Property Name"] in property_options else 0
-                property_name = st.selectbox("Property Name", property_options, index=property_index, key=f"{form_key}_property")
-            with cols[1]:
-                guest_name = st.text_input("Guest Name", value=reservation["Guest Name"] or "", key=f"{form_key}_guest")
-            with cols[2]:
-                mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"] or "", key=f"{form_key}_mobile")
-            with cols[3]:
-                mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
-                mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
-                mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
-                if mob == "Others":
-                    custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
-                else:
-                    custom_mob = None
-                if mob == "Online":
-                    online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
-                    online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
-                    online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
-                    if online_source == "Others":
-                        custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
-                    else:
-                        custom_online_source = None
-                else:
-                    online_source = None
-                    custom_online_source = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 2: Enquiry Date, Check In, Check Out, No of Days
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"] or date.today(), key=f"{form_key}_enquiry")
-            with cols[1]:
-                check_in = st.date_input("Check In", value=reservation["Check In"] or date.today(), key=f"{form_key}_checkin")
-            with cols[2]:
-                check_out = st.date_input("Check Out", value=reservation["Check Out"] or (date.today() + timedelta(days=1)), key=f"{form_key}_checkout")
-            with cols[3]:
-                no_of_days = calculate_days(check_in, check_out)
-                st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 3: No of Adults, No of Children, No of Infants, Breakfast
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"] or 0, key=f"{form_key}_adults")
-            with cols[1]:
-                children = st.number_input("No of Children", min_value=0, value=reservation["No of Children"] or 0, key=f"{form_key}_children")
-            with cols[2]:
-                infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"] or 0, key=f"{form_key}_infants")
-            with cols[3]:
-                breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"] or "CP"), key=f"{form_key}_breakfast")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 4: Total Pax, No of Days, Room Type, Room No
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-                st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants", key=f"{form_key}_pax")
-            with cols[1]:
-                st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in", key=f"{form_key}_days2")
-            with cols[2]:
-                room_map = load_property_room_map()
-                available_room_types = sorted(room_map.get(property_name, {}).keys())
-                is_custom_type = not reservation["Room Type"] or reservation["Room Type"] not in available_room_types
-                room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
-                room_type_index = room_type_options.index("Other" if is_custom_type else (reservation["Room Type"] or "Other"))
-                room_type = st.selectbox("Room Type", room_type_options, index=room_type_index, key=f"{form_key}_roomtype")
-            with cols[3]:
-                available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
-                existing_room_no = reservation["Room No"] or ""
-                if existing_room_no and existing_room_no not in available_rooms:
-                    available_rooms = sorted(set(available_rooms + [existing_room_no]))
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            # Use properties from load_property_room_map, add Property 16 if in reservation
+            property_options = sorted(load_property_room_map().keys())
+            if reservation["Property Name"] == "Property 16":
+                property_options = sorted(property_options + ["Property 16"])
+            property_index = property_options.index(reservation["Property Name"]) if reservation["Property Name"] in property_options else 0
+            property_name = st.selectbox("Property Name", property_options, index=property_index, key=f"{form_key}_property")
+            
+            # Dynamic room types, handle existing if not in list by setting to "Other"
+            room_map = load_property_room_map()
+            available_room_types = sorted(room_map.get(property_name, {}).keys())
+            is_custom_type = reservation["Room Type"] not in available_room_types or not reservation["Room Type"]
+            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
+            room_type_index = room_type_options.index("Other" if is_custom_type else reservation["Room Type"])
+            room_type = st.selectbox("Room Type", room_type_options, index=room_type_index, key=f"{form_key}_roomtype")
+            if room_type == "Other":
+                custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
+            else:
+                custom_room_type = None
+            
+            # Dynamic room numbers, augment with existing if not in list and not None
+            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
+            existing_room_no = reservation["Room No"] or ""
+            if existing_room_no and existing_room_no not in available_rooms:
+                available_rooms = sorted(set(available_rooms + [existing_room_no]))
+            if available_rooms:
                 room_no_index = available_rooms.index(existing_room_no) if existing_room_no in available_rooms else 0
-                room_no = st.selectbox("Room No", available_rooms if available_rooms else [existing_room_no or ""], index=room_no_index, key=f"{form_key}_room")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-        if room_type == "Other":
-            custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] or "", key=f"{form_key}_custom_roomtype")
-        else:
-            custom_room_type = None
+                room_no = st.selectbox("Room No", available_rooms, index=room_no_index, key=f"{form_key}_room")
+            else:
+                st.warning("No rooms available for this room type. Enter manually.")
+                room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room")
+            
+            guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
+            mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
+        with col2:
+            adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"], key=f"{form_key}_adults")
+            children = st.number_input("No of Children", min_value=0, value=reservation["No of Children"], key=f"{form_key}_children")
+            infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"], key=f"{form_key}_infants")
+            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+        with col3:
+            check_in = st.date_input("Check In", value=reservation["Check In"], key=f"{form_key}_checkin")
+            check_out = st.date_input("Check Out", value=reservation["Check Out"], key=f"{form_key}_checkout")
+            no_of_days = calculate_days(check_in, check_out)
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
 
-        # Row 5: Tariff (per day), Advance Amount, Advance MOP
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                tariff = st.number_input("Tariff (per day)", min_value=0.0, value=reservation["Tariff"] or 0.0, step=100.0, key=f"{form_key}_tariff")
-            with cols[1]:
-                advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"] or 0.0, step=100.0, key=f"{form_key}_advance")
-            with cols[2]:
-                advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
-                advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
-                advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
-                if advance_mop == "Other":
-                    custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation["Advance MOP"] if advance_mop_index == len(advance_mop_options) - 1 else "", key=f"{form_key}_custom_advmop")
+        col4, col5 = st.columns(2)
+        with col4:
+            tariff = st.number_input("Tariff (per day)", min_value=0.0, value=reservation["Tariff"], step=100.0, key=f"{form_key}_tariff")
+            total_tariff = safe_float(tariff) * max(0, no_of_days)
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
+            advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
+            advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
+            if advance_mop == "Other":
+                custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation["Advance MOP"] if advance_mop_index == len(advance_mop_options) - 1 else "", key=f"{form_key}_custom_advmop")
+            else:
+                custom_advance_mop = None
+            balance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]
+            balance_mop_index = balance_mop_options.index(reservation["Balance MOP"]) if reservation["Balance MOP"] in balance_mop_options else len(balance_mop_options) - 1
+            balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_index, key=f"{form_key}_balmop")
+            if balance_mop == "Other":
+                custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation["Balance MOP"] if balance_mop_index == len(balance_mop_options) - 1 else "", key=f"{form_key}_custom_balmop")
+            else:
+                custom_balance_mop = None
+        with col5:
+            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
+            balance_amount = max(0, total_tariff - safe_float(advance_amount))
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+            mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
+            mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
+            mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
+            if mob == "Others":
+                custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
+            else:
+                custom_mob = None
+            if mob == "Online":
+                online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
+                online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
+                online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
+                if online_source == "Others":
+                    custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
                 else:
-                    custom_advance_mop = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
+                    custom_online_source = None
+            else:
+                online_source = None
+                custom_online_source = None
+            invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
 
-        # Row 6: Total Tariff, Balance Amount, Balance MOP
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                total_tariff = safe_float(tariff) * max(0, no_of_days)
-                st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days", key=f"{form_key}_total_tariff")
-            with cols[1]:
-                balance_amount = max(0, total_tariff - safe_float(advance_amount))
-                st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount", key=f"{form_key}_balance")
-            with cols[2]:
-                balance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]
-                balance_mop_index = balance_mop_options.index(reservation["Balance MOP"]) if reservation["Balance MOP"] in balance_mop_options else len(balance_mop_options) - 1
-                balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_index, key=f"{form_key}_balmop")
-                if balance_mop == "Other":
-                    custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation["Balance MOP"] if balance_mop_index == len(balance_mop_options) - 1 else "", key=f"{form_key}_custom_balmop")
-                else:
-                    custom_balance_mop = None
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
+        col6, col7 = st.columns(2)
+        with col6:
+            enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"], key=f"{form_key}_enquiry")
+            booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
+            submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"], key=f"{form_key}_submitted_by")
+        with col7:
+            breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
+            modified_by = st.text_input("Modified By", value=reservation["Modified By"], key=f"{form_key}_modified_by")
+            modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"], key=f"{form_key}_modified_comments")
 
-        # Row 7: Booking Date, Invoice No, Plan Status
-        try:
-            cols = st.columns(3)
-            with cols[0]:
-                booking_date = st.date_input("Booking Date", value=reservation["Booking Date"] or date.today(), key=f"{form_key}_booking")
-            with cols[1]:
-                invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"] or "", key=f"{form_key}_invoice")
-            with cols[2]:
-                plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"] or "Confirmed"), key=f"{form_key}_status")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 8: Remarks
-        try:
-            cols = st.columns(1)
-            with cols[0]:
-                remarks = st.text_area("Remarks", value=reservation["Remarks"] or "", placeholder="Additional notes about the reservation", key=f"{form_key}_remarks")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        # Row 9: Payment Status, Submitted By, Modified By, Modified Comments
-        try:
-            cols = st.columns(4)
-            with cols[0]:
-                payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=["Fully Paid", "Partially Paid", "Not Paid"].index(reservation["Payment Status"] or "Not Paid"), key=f"{form_key}_payment_status")
-            with cols[1]:
-                submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"] or "", key=f"{form_key}_submitted_by")
-            with cols[2]:
-                modified_by = st.text_input("Modified By", value=reservation["Modified By"] or "", key=f"{form_key}_modified_by")
-            with cols[3]:
-                modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"] or "", key=f"{form_key}_modified_comments")
-        except Exception as e:
-            st.error(f"Failed to create form columns. Check Streamlit version compatibility: {e}")
-            return
-
-        st.markdown("---")  # Separator before submit buttons
+        # New fields: Remarks and Payment Status
+        remarks = st.text_area("Remarks", value=reservation["Remarks"], key=f"{form_key}_remarks")  # New text field for Remarks
+        payment_status_options = ["Fully Paid", "Partially Paid", "Not Paid"]
+        payment_status_index = payment_status_options.index(reservation["Payment Status"]) if reservation["Payment Status"] in payment_status_options else 2  # Default to "Not Paid"
+        payment_status = st.selectbox("Payment Status", payment_status_options, index=payment_status_index, key=f"{form_key}_payment_status")
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("💾 Update Reservation", key=f"{form_key}_update", use_container_width=True):
+            if st.button("💾 Save Reservation", key=f"{form_key}_update", use_container_width=True):
                 if not all([property_name, room_no, guest_name, mobile_no]):
                     st.error("❌ Please fill in all required fields")
                 elif check_out < check_in:
@@ -991,8 +790,8 @@ def show_edit_form(edit_index):
                             "Submitted By": submitted_by,
                             "Modified By": modified_by,
                             "Modified Comments": modified_comments,
-                            "Remarks": remarks,
-                            "Payment Status": payment_status
+                            "Remarks": remarks,  # New field: Remarks
+                            "Payment Status": payment_status  # New field: Payment Status
                         }
                         if update_reservation_in_supabase(reservation["Booking ID"], updated_reservation):
                             st.session_state.reservations[edit_index] = updated_reservation
@@ -1059,6 +858,7 @@ def show_analytics():
         st.warning("No reservations match the selected filters.")
         return
 
+    # Visualizations moved here with unique keys
     st.subheader("Visualizations")
     col1, col2 = st.columns(2)
     with col1:
