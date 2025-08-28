@@ -4,6 +4,16 @@ import plotly.express as px
 from datetime import datetime, date, timedelta
 from supabase import create_client, Client
 
+# Global CSS for form styling
+st.markdown("""
+    <style>
+    .stForm { margin: 0; padding: 0; }
+    .stForm > div > div { margin-bottom: 0.5rem; width: 100%; }
+    .stForm hr { display: none; }
+    .stTextInput > div > input, .stSelectbox > div > select, .stNumberInput > div > input { max-width: 100%; }
+    </style>
+""", unsafe_allow_html=True)
+
 # Initialize Supabase client
 try:
     supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
@@ -185,8 +195,8 @@ def load_reservations_from_supabase():
                 "Submitted By": record.get("submitted_by", ""),
                 "Modified By": record.get("modified_by", ""),
                 "Modified Comments": record.get("modified_comments", ""),
-                "Remarks": record.get("remarks", ""),  # New field: Remarks, default to empty string
-                "Payment Status": record.get("payment_status", "Not Paid")  # New field: Payment Status, default to "Not Paid"
+                "Remarks": record.get("remarks", ""),
+                "Payment Status": record.get("payment_status", "Not Paid")
             }
             reservations.append(reservation)
         return reservations
@@ -227,8 +237,8 @@ def save_reservation_to_supabase(reservation):
             "submitted_by": reservation["Submitted By"],
             "modified_by": reservation["Modified By"],
             "modified_comments": reservation["Modified Comments"],
-            "remarks": reservation["Remarks"],  # New field: Remarks
-            "payment_status": reservation["Payment Status"]  # New field: Payment Status
+            "remarks": reservation["Remarks"],
+            "payment_status": reservation["Payment Status"]
         }
         response = supabase.table("reservations").insert(supabase_reservation).execute()
         if response.data:
@@ -272,8 +282,8 @@ def update_reservation_in_supabase(booking_id, updated_reservation):
             "submitted_by": updated_reservation["Submitted By"],
             "modified_by": updated_reservation["Modified By"],
             "modified_comments": updated_reservation["Modified Comments"],
-            "remarks": updated_reservation["Remarks"],  # New field: Remarks
-            "payment_status": updated_reservation["Payment Status"]  # New field: Payment Status
+            "remarks": updated_reservation["Remarks"],
+            "payment_status": updated_reservation["Payment Status"]
         }
         response = supabase.table("reservations").update(supabase_reservation).eq("booking_id", booking_id).execute()
         if response.data:
@@ -368,165 +378,440 @@ def display_filtered_analysis(df, start_date=None, end_date=None, view_mode=Fals
     
     return filtered_df
 
+def render_form_row(row_config, form_key, reservation=None):
+    """Render a form row with dynamic inputs based on configuration.
+    
+    Args:
+        row_config: Dict with fields specifying input types and properties.
+        form_key: Unique key prefix for form inputs.
+        reservation: Optional dict for pre-filling values in edit mode.
+    
+    Returns:
+        Dict of field names and their values.
+    """
+    fields = row_config["fields"]
+    values = {}
+    num_fields = len(fields)
+    # Dynamic column count based on number of fields to optimize layout
+    cols = st.columns(max(1, num_fields))
+    for i, field in enumerate(fields):
+        with cols[i]:
+            key = f"{form_key}_{field['key']}"
+            default = reservation.get(field["name"], field.get("default")) if reservation else field.get("default")
+            
+            if field["type"] == "text":
+                values[field["name"]] = st.text_input(field["label"], value=default or "", placeholder=field.get("placeholder", ""), key=key)
+            elif field["type"] == "number":
+                values[field["name"]] = st.number_input(field["label"], min_value=field.get("min_value", 0), value=safe_float(default) if field["name"] in ["Tariff", "Advance Amount"] else safe_int(default) if default is not None else field.get("default", 0), step=field.get("step", 1), key=key)
+            elif field["type"] == "date":
+                values[field["name"]] = st.date_input(field["label"], value=default or date.today(), key=key)
+            elif field["type"] == "selectbox":
+                options = field["options"]
+                index = options.index(default) if default in options else 0
+                values[field["name"]] = st.selectbox(field["label"], options, index=index, key=key)
+                if field["name"] == "MOB" and values[field["name"]] == "Others":
+                    values["Custom MOB"] = st.text_input("Custom MOB", value=reservation.get("MOB", "") if reservation and default not in options else "", key=f"{key}_custom")
+                elif field["name"] == "MOB" and values[field["name"]] == "Online":
+                    online_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
+                    online_default = reservation.get("Online Source", "") if reservation else ""
+                    online_index = online_options.index(online_default) if online_default in online_options else len(online_options) - 1
+                    values["Online Source"] = st.selectbox("Online Source", online_options, index=online_index, key=f"{key}_online")
+                    if values["Online Source"] == "Others":
+                        values["Custom Online Source"] = st.text_input("Custom Online Source", value=reservation.get("Online Source", "") if reservation and online_default not in online_options else "", key=f"{key}_custom_online")
+                    else:
+                        values["Custom Online Source"] = None
+                elif field["name"] in ["Advance MOP", "Balance MOP"] and values[field["name"]] == "Other":
+                    custom_key = f"Custom {field['name']}"
+                    values[custom_key] = st.text_input(f"Custom {field['label']}", value=reservation.get(field["name"], "") if reservation and default not in options else "", key=f"{key}_custom")
+                else:
+                    values[f"Custom {field['name']}"] = None
+            elif field["type"] == "text_area":
+                values[field["name"]] = st.text_area(field["label"], value=default or "", key=key)
+            elif field["type"] == "disabled_text":
+                value = f"₹{default:.2f}" if field["name"] in ["Total Tariff", "Balance Amount"] and default is not None else str(default) if default is not None else ""
+                values[field["name"]] = st.text_input(field["label"], value=value, disabled=True, key=key)
+            elif field["type"] == "dynamic_selectbox":
+                if field["name"] == "Property Name":
+                    options = sorted(load_property_room_map().keys())
+                    if reservation and reservation.get("Property Name") == "Property 16":
+                        options = sorted(options + ["Property 16"])
+                    index = options.index(default) if default in options else 0
+                    values[field["name"]] = st.selectbox(field["label"], options, index=index, key=key)
+                elif field["name"] == "Room Type":
+                    room_map = load_property_room_map()
+                    available_room_types = sorted(room_map.get(values.get("Property Name", ""), {}).keys())
+                    is_custom_type = default not in available_room_types or not default
+                    room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
+                    room_type_index = room_type_options.index("Other" if is_custom_type else default)
+                    values[field["name"]] = st.selectbox(field["label"], room_type_options, index=room_type_index, key=key)
+                    if values[field["name"]] == "Other":
+                        values["Custom Room Type"] = st.text_input("Custom Room Type", value=default if is_custom_type else "", key=f"{key}_custom")
+                    else:
+                        values["Custom Room Type"] = None
+                elif field["name"] == "Room No":
+                    room_map = load_property_room_map()
+                    room_type = values.get("Room Type", "")
+                    available_rooms = sorted(room_map.get(values.get("Property Name", ""), {}).get(room_type, [])) if room_type != "Other" else []
+                    existing_room_no = default or ""
+                    if existing_room_no and existing_room_no not in available_rooms:
+                        available_rooms = sorted(set(available_rooms + [existing_room_no]))
+                    if available_rooms:
+                        room_no_index = available_rooms.index(existing_room_no) if existing_room_no in available_rooms else 0
+                        values[field["name"]] = st.selectbox(field["label"], available_rooms, index=room_no_index, key=key)
+                    else:
+                        st.warning("No rooms available for this room type. Enter manually.")
+                        values[field["name"]] = st.text_input(field["label"], value=existing_room_no, placeholder="Enter room number", key=key)
+    return values
+
 def show_new_reservation_form():
-    """Display form for creating a new reservation with dynamic room assignments."""
+    """Display form for creating a new reservation with specified row layout."""
     try:
         st.header("📝 Direct Reservations")
         form_key = "new_reservation"
+        row_configs = [
+            # Row 1: Property Name, Guest Name, Mobile No, MOB
+            {
+                "fields": [
+                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name"},
+                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name"},
+                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number"},
+                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]}
+                ]
+            },
+            # Row 2: Enquiry Date, Check In, Check Out, No of Days
+            {
+                "fields": [
+                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date", "default": date.today()},
+                    {"name": "Check In", "type": "date", "label": "Check In", "default": date.today()},
+                    {"name": "Check Out", "type": "date", "label": "Check Out", "default": date.today() + timedelta(days=1)},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"}
+                ]
+            },
+            # Row 3: No of Adults, No of Children, No of Infants, Breakfast
+            {
+                "fields": [
+                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "default": 1, "min_value": 0},
+                    {"name": "No of Children", "type": "number", "label": "No of Children", "default": 0, "min_value": 0},
+                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "default": 0, "min_value": 0},
+                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"]}
+                ]
+            },
+            # Row 4: Total Pax, No of Days, Room Type, Room No
+            {
+                "fields": [
+                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"},
+                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type"},
+                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No"}
+                ]
+            },
+            # Row 5: Tariff (per day), Advance Amount, Advance MOP
+            {
+                "fields": [
+                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "default": 0.0, "min_value": 0.0, "step": 100.0},
+                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "default": 0.0, "min_value": 0.0, "step": 100.0},
+                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]}
+                ]
+            },
+            # Row 6: Total Tariff, Balance Amount, Balance MOP
+            {
+                "fields": [
+                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff"},
+                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount"},
+                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]}
+                ]
+            },
+            # Row 7: Booking Date, Invoice No, Plan Status
+            {
+                "fields": [
+                    {"name": "Booking Date", "type": "date", "label": "Booking Date", "default": date.today()},
+                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number"},
+                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"]}
+                ]
+            },
+            # Row 8: Remarks
+            {
+                "fields": [
+                    {"name": "Remarks", "type": "text_area", "label": "Remarks", "default": ""}
+                ]
+            },
+            # Row 9: Payment Status, Submitted By
+            {
+                "fields": [
+                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"], "default": "Not Paid"},
+                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name"}
+                ]
+            }
+        ]
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Use properties from load_property_room_map
-            property_options = sorted(load_property_room_map().keys())
-            property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
-            
-            # Dynamic room types based on property
-            room_map = load_property_room_map()
-            available_room_types = sorted(room_map.get(property_name, {}).keys())
-            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
-            if not available_room_types:
-                st.warning("No room types available for this property. Use 'Other'.")
-            room_type = st.selectbox("Room Type", room_type_options, key=f"{form_key}_roomtype")
-            if room_type == "Other":
-                custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
-            else:
-                custom_room_type = None
-            
-            # Dynamic room numbers based on property and room type
-            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
-            if available_rooms:
-                room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
-            else:
-                st.warning("No rooms available for this room type. Enter manually.")
-                room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
-            
-            guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
-            mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
-        with col2:
-            adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
-            children = st.number_input("No of Children", min_value=0, value=0, key=f"{form_key}_children")
-            infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
-            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
-        with col3:
-            check_in = st.date_input("Check In", value=date.today(), key=f"{form_key}_checkin")
-            check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
-            no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+        with st.form(key=form_key):
+            form_values = {}
+            for row_config in row_configs:
+                row_values = render_form_row(row_config, form_key)
+                form_values.update(row_values)
 
-        col4, col5 = st.columns(2)
-        with col4:
-            tariff = st.number_input("Tariff (per day)", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_tariff")
-            total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
-            advance_mop = st.selectbox("Advance MOP",
-                                       ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"],
-                                       key=f"{form_key}_advmop")
-            if advance_mop == "Other":
-                custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
-            else:
-                custom_advance_mop = None
-            balance_mop = st.selectbox("Balance MOP",
-                                       ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"],
-                                       key=f"{form_key}_balmop")
-            if balance_mop == "Other":
-                custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
-            else:
-                custom_balance_mop = None
-        with col5:
-            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_advance")
-            balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
-            mob = st.selectbox("MOB (Mode of Booking)",
-                               ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
-                               key=f"{form_key}_mob")
-            if mob == "Others":
-                custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
-            else:
-                custom_mob = None
-            if mob == "Online":
-                online_source = st.selectbox("Online Source",
-                                             ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
-                                             key=f"{form_key}_online_source")
-                if online_source == "Others":
-                    custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
+            # Calculate derived values
+            check_in = form_values.get("Check In")
+            check_out = form_values.get("Check Out")
+            no_of_days = calculate_days(check_in, check_out) if check_in and check_out else 0
+            adults = safe_int(form_values.get("No of Adults", 0))
+            children = safe_int(form_values.get("No of Children", 0))
+            infants = safe_int(form_values.get("No of Infants", 0))
+            total_pax = adults + children + infants
+            tariff = safe_float(form_values.get("Tariff", 0.0))
+            total_tariff = tariff * max(0, no_of_days)
+            advance_amount = safe_float(form_values.get("Advance Amount", 0.0))
+            balance_amount = max(0, total_tariff - advance_amount)
+
+            # Update disabled fields
+            form_values["No of Days"] = no_of_days
+            form_values["Total Pax"] = total_pax
+            form_values["Total Tariff"] = total_tariff
+            form_values["Balance Amount"] = balance_amount
+
+            if st.form_submit_button("💾 Save Reservation", use_container_width=True):
+                required_fields = ["Property Name", "Room No", "Guest Name", "Mobile No"]
+                if not all(form_values.get(field) for field in required_fields):
+                    st.error("❌ Please fill in all required fields")
+                elif check_out and check_in and check_out < check_in:
+                    st.error("❌ Check-out date must be on or after check-in")
+                elif no_of_days < 0:
+                    st.error("❌ Number of days cannot be negative")
                 else:
-                    custom_online_source = None
-            else:
-                online_source = None
-                custom_online_source = None
-            invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
-
-        col6, col7 = st.columns(2)
-        with col6:
-            enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
-            booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
-        with col7:
-            breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
-            submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
-
-        # New fields: Remarks and Payment Status
-        remarks = st.text_area("Remarks", value="", key=f"{form_key}_remarks")  # New text field for Remarks
-        payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")  # Default to "Not Paid"
-
-        if st.button("💾 Save Reservation", use_container_width=True):
-            if not all([property_name, room_no, guest_name, mobile_no]):
-                st.error("❌ Please fill in all required fields")
-            elif check_out < check_in:
-                st.error("❌ Check-out date must be on or after check-in")
-            elif no_of_days < 0:
-                st.error("❌ Number of days cannot be negative")
-            else:
-                mob_value = custom_mob if mob == "Others" else mob
-                is_duplicate, existing_booking_id = check_duplicate_guest(guest_name, mobile_no, room_no, mob=mob_value)
-                if is_duplicate:
-                    st.error(f"❌ Guest already exists! Booking ID: {existing_booking_id}")
-                else:
-                    booking_id = generate_booking_id()
-                    if not booking_id:
-                        st.error("❌ Failed to generate a unique booking ID")
-                        return
-                    reservation = {
-                        "Property Name": property_name,
-                        "Room No": room_no,
-                        "Guest Name": guest_name,
-                        "Mobile No": mobile_no,
-                        "No of Adults": safe_int(adults),
-                        "No of Children": safe_int(children),
-                        "No of Infants": safe_int(infants),
-                        "Total Pax": total_pax,
-                        "Check In": check_in,
-                        "Check Out": check_out,
-                        "No of Days": no_of_days,
-                        "Tariff": safe_float(tariff),
-                        "Total Tariff": total_tariff,
-                        "Advance Amount": safe_float(advance_amount),
-                        "Balance Amount": balance_amount,
-                        "Advance MOP": custom_advance_mop if advance_mop == "Other" else advance_mop,
-                        "Balance MOP": custom_balance_mop if balance_mop == "Other" else balance_mop,
-                        "MOB": mob_value,
-                        "Online Source": custom_online_source if online_source == "Others" else online_source,
-                        "Invoice No": invoice_no,
-                        "Enquiry Date": enquiry_date,
-                        "Booking Date": booking_date,
-                        "Booking ID": booking_id,
-                        "Room Type": custom_room_type if room_type == "Other" else room_type,
-                        "Breakfast": breakfast,
-                        "Plan Status": plan_status,
-                        "Submitted By": submitted_by,
-                        "Modified By": "",
-                        "Modified Comments": "",
-                        "Remarks": remarks,  # New field: Remarks
-                        "Payment Status": payment_status  # New field: Payment Status
-                    }
-                    if save_reservation_to_supabase(reservation):
-                        st.success(f"✅ Reservation {booking_id} created successfully!")
-                        show_confirmation_dialog(booking_id)
+                    mob_value = form_values.get("Custom MOB") if form_values.get("MOB") == "Others" else form_values.get("MOB")
+                    is_duplicate, existing_booking_id = check_duplicate_guest(form_values["Guest Name"], form_values["Mobile No"], form_values["Room No"], mob=mob_value)
+                    if is_duplicate:
+                        st.error(f"❌ Guest already exists! Booking ID: {existing_booking_id}")
                     else:
-                        st.error("❌ Failed to save reservation")
+                        booking_id = generate_booking_id()
+                        if not booking_id:
+                            st.error("❌ Failed to generate a unique booking ID")
+                            return
+                        reservation = {
+                            "Property Name": form_values["Property Name"],
+                            "Room No": form_values["Room No"],
+                            "Guest Name": form_values["Guest Name"],
+                            "Mobile No": form_values["Mobile No"],
+                            "No of Adults": adults,
+                            "No of Children": children,
+                            "No of Infants": infants,
+                            "Total Pax": total_pax,
+                            "Check In": check_in,
+                            "Check Out": check_out,
+                            "No of Days": no_of_days,
+                            "Tariff": tariff,
+                            "Total Tariff": total_tariff,
+                            "Advance Amount": advance_amount,
+                            "Balance Amount": balance_amount,
+                            "Advance MOP": form_values.get("Custom Advance MOP") if form_values.get("Advance MOP") == "Other" else form_values.get("Advance MOP"),
+                            "Balance MOP": form_values.get("Custom Balance MOP") if form_values.get("Balance MOP") == "Other" else form_values.get("Balance MOP"),
+                            "MOB": mob_value,
+                            "Online Source": form_values.get("Custom Online Source") if form_values.get("Online Source") == "Others" else form_values.get("Online Source"),
+                            "Invoice No": form_values.get("Invoice No"),
+                            "Enquiry Date": form_values.get("Enquiry Date"),
+                            "Booking Date": form_values.get("Booking Date"),
+                            "Booking ID": booking_id,
+                            "Room Type": form_values.get("Custom Room Type") if form_values.get("Room Type") == "Other" else form_values.get("Room Type"),
+                            "Breakfast": form_values.get("Breakfast"),
+                            "Plan Status": form_values.get("Plan Status"),
+                            "Submitted By": form_values.get("Submitted By"),
+                            "Modified By": "",
+                            "Modified Comments": "",
+                            "Remarks": form_values.get("Remarks"),
+                            "Payment Status": form_values.get("Payment Status")
+                        }
+                        if save_reservation_to_supabase(reservation):
+                            st.success(f"✅ Reservation {booking_id} created successfully!")
+                            show_confirmation_dialog(booking_id)
+                        else:
+                            st.error("❌ Failed to save reservation")
     except Exception as e:
         st.error(f"Error rendering new reservation form: {e}")
+
+def show_edit_form(edit_index):
+    """Display form for editing an existing reservation with specified row layout."""
+    try:
+        reservation = st.session_state.reservations[edit_index]
+        st.subheader(f"✏️ Editing Reservation: {reservation['Booking ID']}")
+        form_key = f"edit_reservation_{edit_index}"
+        row_configs = [
+            # Row 1: Property Name, Guest Name, Mobile No, MOB
+            {
+                "fields": [
+                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name"},
+                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name"},
+                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number"},
+                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]}
+                ]
+            },
+            # Row 2: Enquiry Date, Check In, Check Out, No of Days
+            {
+                "fields": [
+                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date"},
+                    {"name": "Check In", "type": "date", "label": "Check In"},
+                    {"name": "Check Out", "type": "date", "label": "Check Out"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"}
+                ]
+            },
+            # Row 3: No of Adults, No of Children, No of Infants, Breakfast
+            {
+                "fields": [
+                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "min_value": 0},
+                    {"name": "No of Children", "type": "number", "label": "No of Children", "min_value": 0},
+                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "min_value": 0},
+                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"]}
+                ]
+            },
+            # Row 4: Total Pax, No of Days, Room Type, Room No
+            {
+                "fields": [
+                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"},
+                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type"},
+                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No"}
+                ]
+            },
+            # Row 5: Tariff (per day), Advance Amount, Advance MOP
+            {
+                "fields": [
+                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "min_value": 0.0, "step": 100.0},
+                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "min_value": 0.0, "step": 100.0},
+                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]}
+                ]
+            },
+            # Row 6: Total Tariff, Balance Amount, Balance MOP
+            {
+                "fields": [
+                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff"},
+                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount"},
+                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]}
+                ]
+            },
+            # Row 7: Booking Date, Invoice No, Plan Status
+            {
+                "fields": [
+                    {"name": "Booking Date", "type": "date", "label": "Booking Date"},
+                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number"},
+                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"]}
+                ]
+            },
+            # Row 8: Remarks
+            {
+                "fields": [
+                    {"name": "Remarks", "type": "text_area", "label": "Remarks"}
+                ]
+            },
+            # Row 9: Payment Status, Submitted By
+            {
+                "fields": [
+                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"]},
+                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name"}
+                ]
+            },
+            # Row 10: Modified By, Modified Comments
+            {
+                "fields": [
+                    {"name": "Modified By", "type": "text", "label": "Modified By", "placeholder": "Enter modifier name"},
+                    {"name": "Modified Comments", "type": "text_area", "label": "Modified Comments"}
+                ]
+            }
+        ]
+
+        with st.form(key=form_key):
+            form_values = {}
+            for row_config in row_configs:
+                row_values = render_form_row(row_config, form_key, reservation)
+                form_values.update(row_values)
+
+            # Calculate derived values
+            check_in = form_values.get("Check In")
+            check_out = form_values.get("Check Out")
+            no_of_days = calculate_days(check_in, check_out) if check_in and check_out else 0
+            adults = safe_int(form_values.get("No of Adults", 0))
+            children = safe_int(form_values.get("No of Children", 0))
+            infants = safe_int(form_values.get("No of Infants", 0))
+            total_pax = adults + children + infants
+            tariff = safe_float(form_values.get("Tariff", 0.0))
+            total_tariff = tariff * max(0, no_of_days)
+            advance_amount = safe_float(form_values.get("Advance Amount", 0.0))
+            balance_amount = max(0, total_tariff - advance_amount)
+
+            # Update disabled fields
+            form_values["No of Days"] = no_of_days
+            form_values["Total Pax"] = total_pax
+            form_values["Total Tariff"] = total_tariff
+            form_values["Balance Amount"] = balance_amount
+
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.form_submit_button("💾 Save Reservation", use_container_width=True):
+                    required_fields = ["Property Name", "Room No", "Guest Name", "Mobile No"]
+                    if not all(form_values.get(field) for field in required_fields):
+                        st.error("❌ Please fill in all required fields")
+                    elif check_out and check_in and check_out < check_in:
+                        st.error("❌ Check-out date must be on or after check-in")
+                    elif no_of_days < 0:
+                        st.error("❌ Number of days cannot be negative")
+                    else:
+                        mob_value = form_values.get("Custom MOB") if form_values.get("MOB") == "Others" else form_values.get("MOB")
+                        is_duplicate, existing_booking_id = check_duplicate_guest(form_values["Guest Name"], form_values["Mobile No"], form_values["Room No"], exclude_booking_id=reservation["Booking ID"], mob=mob_value)
+                        if is_duplicate:
+                            st.error(f"❌ Guest already exists! Booking ID: {existing_booking_id}")
+                        else:
+                            updated_reservation = {
+                                "Property Name": form_values["Property Name"],
+                                "Room No": form_values["Room No"],
+                                "Guest Name": form_values["Guest Name"],
+                                "Mobile No": form_values["Mobile No"],
+                                "No of Adults": adults,
+                                "No of Children": children,
+                                "No of Infants": infants,
+                                "Total Pax": total_pax,
+                                "Check In": check_in,
+                                "Check Out": check_out,
+                                "No of Days": no_of_days,
+                                "Tariff": tariff,
+                                "Total Tariff": total_tariff,
+                                "Advance Amount": advance_amount,
+                                "Balance Amount": balance_amount,
+                                "Advance MOP": form_values.get("Custom Advance MOP") if form_values.get("Advance MOP") == "Other" else form_values.get("Advance MOP"),
+                                "Balance MOP": form_values.get("Custom Balance MOP") if form_values.get("Balance MOP") == "Other" else form_values.get("Balance MOP"),
+                                "MOB": mob_value,
+                                "Online Source": form_values.get("Custom Online Source") if form_values.get("Online Source") == "Others" else form_values.get("Online Source"),
+                                "Invoice No": form_values.get("Invoice No"),
+                                "Enquiry Date": form_values.get("Enquiry Date"),
+                                "Booking Date": form_values.get("Booking Date"),
+                                "Booking ID": reservation["Booking ID"],
+                                "Room Type": form_values.get("Custom Room Type") if form_values.get("Room Type") == "Other" else form_values.get("Room Type"),
+                                "Breakfast": form_values.get("Breakfast"),
+                                "Plan Status": form_values.get("Plan Status"),
+                                "Submitted By": form_values.get("Submitted By"),
+                                "Modified By": form_values.get("Modified By"),
+                                "Modified Comments": form_values.get("Modified Comments"),
+                                "Remarks": form_values.get("Remarks"),
+                                "Payment Status": form_values.get("Payment Status")
+                            }
+                            if update_reservation_in_supabase(reservation["Booking ID"], updated_reservation):
+                                st.session_state.reservations[edit_index] = updated_reservation
+                                st.session_state.edit_mode = False
+                                st.session_state.edit_index = None
+                                st.success(f"✅ Reservation {reservation['Booking ID']} updated successfully!")
+                                show_confirmation_dialog(reservation["Booking ID"], is_update=True)
+                            else:
+                                st.error("❌ Failed to update reservation")
+            with col_btn2:
+                if st.session_state.role == "Management":
+                    if st.form_submit_button("🗑️ Delete Reservation", use_container_width=True):
+                        if delete_reservation_in_supabase(reservation["Booking ID"]):
+                            st.session_state.reservations.pop(edit_index)
+                            st.session_state.edit_mode = False
+                            st.session_state.edit_index = None
+                            st.success(f"🗑️ Reservation {reservation['Booking ID']} deleted successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to delete reservation")
+    except Exception as e:
+        st.error(f"Error rendering edit form: {e}")
 
 def show_reservations():
     """Display all reservations with filtering options."""
@@ -631,190 +916,6 @@ def show_edit_reservations():
     except Exception as e:
         st.error(f"Error rendering edit reservations: {e}")
 
-def show_edit_form(edit_index):
-    """Display form for editing an existing reservation with dynamic room assignments."""
-    try:
-        st.subheader(f"✏️ Editing Reservation: {st.session_state.reservations[edit_index]['Booking ID']}")
-        reservation = st.session_state.reservations[edit_index]
-        form_key = f"edit_reservation_{edit_index}"
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Use properties from load_property_room_map, add Property 16 if in reservation
-            property_options = sorted(load_property_room_map().keys())
-            if reservation["Property Name"] == "Property 16":
-                property_options = sorted(property_options + ["Property 16"])
-            property_index = property_options.index(reservation["Property Name"]) if reservation["Property Name"] in property_options else 0
-            property_name = st.selectbox("Property Name", property_options, index=property_index, key=f"{form_key}_property")
-            
-            # Dynamic room types, handle existing if not in list by setting to "Other"
-            room_map = load_property_room_map()
-            available_room_types = sorted(room_map.get(property_name, {}).keys())
-            is_custom_type = reservation["Room Type"] not in available_room_types or not reservation["Room Type"]
-            room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
-            room_type_index = room_type_options.index("Other" if is_custom_type else reservation["Room Type"])
-            room_type = st.selectbox("Room Type", room_type_options, index=room_type_index, key=f"{form_key}_roomtype")
-            if room_type == "Other":
-                custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
-            else:
-                custom_room_type = None
-            
-            # Dynamic room numbers, augment with existing if not in list and not None
-            available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
-            existing_room_no = reservation["Room No"] or ""
-            if existing_room_no and existing_room_no not in available_rooms:
-                available_rooms = sorted(set(available_rooms + [existing_room_no]))
-            if available_rooms:
-                room_no_index = available_rooms.index(existing_room_no) if existing_room_no in available_rooms else 0
-                room_no = st.selectbox("Room No", available_rooms, index=room_no_index, key=f"{form_key}_room")
-            else:
-                st.warning("No rooms available for this room type. Enter manually.")
-                room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room")
-            
-            guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
-            mobile_no = st.text_input("Mobile No", value=reservation["Mobile No"], key=f"{form_key}_mobile")
-        with col2:
-            adults = st.number_input("No of Adults", min_value=0, value=reservation["No of Adults"], key=f"{form_key}_adults")
-            children = st.number_input("No of Children", min_value=0, value=reservation["No of Children"], key=f"{form_key}_children")
-            infants = st.number_input("No of Infants", min_value=0, value=reservation["No of Infants"], key=f"{form_key}_infants")
-            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
-        with col3:
-            check_in = st.date_input("Check In", value=reservation["Check In"], key=f"{form_key}_checkin")
-            check_out = st.date_input("Check Out", value=reservation["Check Out"], key=f"{form_key}_checkout")
-            no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
-
-        col4, col5 = st.columns(2)
-        with col4:
-            tariff = st.number_input("Tariff (per day)", min_value=0.0, value=reservation["Tariff"], step=100.0, key=f"{form_key}_tariff")
-            total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
-            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
-            advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
-            advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
-            if advance_mop == "Other":
-                custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation["Advance MOP"] if advance_mop_index == len(advance_mop_options) - 1 else "", key=f"{form_key}_custom_advmop")
-            else:
-                custom_advance_mop = None
-            balance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]
-            balance_mop_index = balance_mop_options.index(reservation["Balance MOP"]) if reservation["Balance MOP"] in balance_mop_options else len(balance_mop_options) - 1
-            balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_index, key=f"{form_key}_balmop")
-            if balance_mop == "Other":
-                custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation["Balance MOP"] if balance_mop_index == len(balance_mop_options) - 1 else "", key=f"{form_key}_custom_balmop")
-            else:
-                custom_balance_mop = None
-        with col5:
-            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
-            balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
-            mob_options = ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]
-            mob_index = mob_options.index(reservation["MOB"]) if reservation["MOB"] in mob_options else len(mob_options) - 1
-            mob = st.selectbox("MOB (Mode of Booking)", mob_options, index=mob_index, key=f"{form_key}_mob")
-            if mob == "Others":
-                custom_mob = st.text_input("Custom MOB", value=reservation["MOB"] if mob_index == len(mob_options) - 1 else "", key=f"{form_key}_custom_mob")
-            else:
-                custom_mob = None
-            if mob == "Online":
-                online_source_options = ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"]
-                online_source_index = online_source_options.index(reservation["Online Source"]) if reservation["Online Source"] in online_source_options else len(online_source_options) - 1
-                online_source = st.selectbox("Online Source", online_source_options, index=online_source_index, key=f"{form_key}_online_source")
-                if online_source == "Others":
-                    custom_online_source = st.text_input("Custom Online Source", value=reservation["Online Source"] if online_source_index == len(online_source_options) - 1 else "", key=f"{form_key}_custom_online_source")
-                else:
-                    custom_online_source = None
-            else:
-                online_source = None
-                custom_online_source = None
-            invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
-
-        col6, col7 = st.columns(2)
-        with col6:
-            enquiry_date = st.date_input("Enquiry Date", value=reservation["Enquiry Date"], key=f"{form_key}_enquiry")
-            booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
-            submitted_by = st.text_input("Submitted By", value=reservation["Submitted By"], key=f"{form_key}_submitted_by")
-        with col7:
-            breakfast = st.selectbox("Breakfast", ["CP", "EP"], index=["CP", "EP"].index(reservation["Breakfast"]), key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Plan Status"]), key=f"{form_key}_status")
-            modified_by = st.text_input("Modified By", value=reservation["Modified By"], key=f"{form_key}_modified_by")
-            modified_comments = st.text_area("Modified Comments", value=reservation["Modified Comments"], key=f"{form_key}_modified_comments")
-
-        # New fields: Remarks and Payment Status
-        remarks = st.text_area("Remarks", value=reservation["Remarks"], key=f"{form_key}_remarks")  # New text field for Remarks
-        payment_status_options = ["Fully Paid", "Partially Paid", "Not Paid"]
-        payment_status_index = payment_status_options.index(reservation["Payment Status"]) if reservation["Payment Status"] in payment_status_options else 2  # Default to "Not Paid"
-        payment_status = st.selectbox("Payment Status", payment_status_options, index=payment_status_index, key=f"{form_key}_payment_status")
-
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("💾 Save Reservation", key=f"{form_key}_update", use_container_width=True):
-                if not all([property_name, room_no, guest_name, mobile_no]):
-                    st.error("❌ Please fill in all required fields")
-                elif check_out < check_in:
-                    st.error("❌ Check-out date must be on or after check-in")
-                elif no_of_days < 0:
-                    st.error("❌ Number of days cannot be negative")
-                else:
-                    mob_value = custom_mob if mob == "Others" else mob
-                    is_duplicate, existing_booking_id = check_duplicate_guest(guest_name, mobile_no, room_no, exclude_booking_id=reservation["Booking ID"], mob=mob_value)
-                    if is_duplicate:
-                        st.error(f"❌ Guest already exists! Booking ID: {existing_booking_id}")
-                    else:
-                        updated_reservation = {
-                            "Property Name": property_name,
-                            "Room No": room_no,
-                            "Guest Name": guest_name,
-                            "Mobile No": mobile_no,
-                            "No of Adults": safe_int(adults),
-                            "No of Children": safe_int(children),
-                            "No of Infants": safe_int(infants),
-                            "Total Pax": total_pax,
-                            "Check In": check_in,
-                            "Check Out": check_out,
-                            "No of Days": no_of_days,
-                            "Tariff": safe_float(tariff),
-                            "Total Tariff": total_tariff,
-                            "Advance Amount": safe_float(advance_amount),
-                            "Balance Amount": balance_amount,
-                            "Advance MOP": custom_advance_mop if advance_mop == "Other" else advance_mop,
-                            "Balance MOP": custom_balance_mop if balance_mop == "Other" else balance_mop,
-                            "MOB": mob_value,
-                            "Online Source": custom_online_source if online_source == "Others" else online_source,
-                            "Invoice No": invoice_no,
-                            "Enquiry Date": enquiry_date,
-                            "Booking Date": booking_date,
-                            "Booking ID": reservation["Booking ID"],
-                            "Room Type": custom_room_type if room_type == "Other" else room_type,
-                            "Breakfast": breakfast,
-                            "Plan Status": plan_status,
-                            "Submitted By": submitted_by,
-                            "Modified By": modified_by,
-                            "Modified Comments": modified_comments,
-                            "Remarks": remarks,  # New field: Remarks
-                            "Payment Status": payment_status  # New field: Payment Status
-                        }
-                        if update_reservation_in_supabase(reservation["Booking ID"], updated_reservation):
-                            st.session_state.reservations[edit_index] = updated_reservation
-                            st.session_state.edit_mode = False
-                            st.session_state.edit_index = None
-                            st.success(f"✅ Reservation {reservation['Booking ID']} updated successfully!")
-                            show_confirmation_dialog(reservation["Booking ID"], is_update=True)
-                        else:
-                            st.error("❌ Failed to update reservation")
-        with col_btn2:
-            if st.session_state.role == "Management":
-                if st.button("🗑️ Delete Reservation", key=f"{form_key}_delete", use_container_width=True):
-                    if delete_reservation_in_supabase(reservation["Booking ID"]):
-                        st.session_state.reservations.pop(edit_index)
-                        st.session_state.edit_mode = False
-                        st.session_state.edit_index = None
-                        st.success(f"🗑️ Reservation {reservation['Booking ID']} deleted successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to delete reservation")
-    except Exception as e:
-        st.error(f"Error rendering edit form: {e}")
-
 def show_analytics():
     """Display analytics dashboard for Management users."""
     if st.session_state.role != "Management":
@@ -858,7 +959,7 @@ def show_analytics():
         st.warning("No reservations match the selected filters.")
         return
 
-    # Visualizations moved here with unique keys
+    # Visualizations
     st.subheader("Visualizations")
     col1, col2 = st.columns(2)
     with col1:
