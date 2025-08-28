@@ -473,7 +473,7 @@ def show_new_reservation_form():
         with row7_col2:
             invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
         with row7_col3:
-            booking_status = st.selectbox("Booking Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
+            booking_status = st.selectbox("Booking Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=1, key=f"{form_key}_status")
         # Row 8: Remarks
         row8_col1, = st.columns(1)
         with row8_col1:
@@ -666,7 +666,7 @@ def show_edit_form(edit_index):
         reservation = st.session_state.reservations[edit_index]
         form_key = f"edit_reservation_{edit_index}"
 
-        # Initialize session state for dynamic updates
+        # Initialize session state only if not already set
         if f"{form_key}_property" not in st.session_state:
             st.session_state[f"{form_key}_property"] = reservation["Property Name"]
         if f"{form_key}_roomtype" not in st.session_state:
@@ -678,10 +678,10 @@ def show_edit_form(edit_index):
             property_options = sorted(load_property_room_map().keys())
             if reservation["Property Name"] == "Property 16":
                 property_options = sorted(property_options + ["Property 16"])
-            property_index = property_options.index(reservation["Property Name"]) if reservation["Property Name"] in property_options else 0
-            property_name = st.selectbox("Property Name", property_options, index=property_index,
-                                        key=f"{form_key}_property",
-                                        on_change=lambda: st.session_state.update({f"{form_key}_roomtype": ""}))
+            property_name = st.selectbox("Property Name", property_options,
+                                         index=property_options.index(st.session_state[f"{form_key}_property"]) if st.session_state[f"{form_key}_property"] in property_options else 0,
+                                         key=f"{form_key}_property",
+                                         on_change=lambda: st.session_state.update({f"{form_key}_roomtype": ""}))
         with row1_col2:
             guest_name = st.text_input("Guest Name", value=reservation["Guest Name"], key=f"{form_key}_guest")
         with row1_col3:
@@ -728,7 +728,7 @@ def show_edit_form(edit_index):
             available_room_types = sorted(room_map.get(property_name, {}).keys())
             is_custom_type = reservation["Room Type"] not in available_room_types or not reservation["Room Type"]
             room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
-            room_type_index = room_type_options.index("Other" if is_custom_type else reservation["Room Type"])
+            room_type_index = room_type_options.index("Other" if is_custom_type else reservation["Room Type"]) if reservation["Room Type"] else 0
             room_type = st.selectbox("Room Type", room_type_options, index=room_type_index, key=f"{form_key}_roomtype")
             if room_type == "Other":
                 custom_room_type = st.text_input("Custom Room Type", value=reservation["Room Type"] if is_custom_type else "", key=f"{form_key}_custom_roomtype")
@@ -781,7 +781,9 @@ def show_edit_form(edit_index):
         with row7_col2:
             invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
         with row7_col3:
-            booking_status = st.selectbox("Booking Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], index=["Confirmed", "Pending", "Cancelled", "Completed", "No Show"].index(reservation["Booking Status"]), key=f"{form_key}_status")
+            booking_status_options = ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"]
+            booking_status_index = booking_status_options.index(reservation["Booking Status"]) if reservation["Booking Status"] in booking_status_options else 1
+            booking_status = st.selectbox("Booking Status", booking_status_options, index=booking_status_index, key=f"{form_key}_status")
 
         # Row 8: Remarks
         row8_col1, = st.columns(1)
