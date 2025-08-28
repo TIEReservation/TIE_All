@@ -396,6 +396,9 @@ def render_form_row(row_config, form_key, reservation=None):
     cols = st.columns(max(1, num_fields))
     for i, field in enumerate(fields):
         with cols[i]:
+            if "key" not in field:
+                st.error(f"Configuration error: Missing 'key' for field {field.get('name', 'unknown')}")
+                continue
             key = f"{form_key}_{field['key']}"
             default = reservation.get(field["name"], field.get("default")) if reservation else field.get("default")
             
@@ -472,74 +475,74 @@ def show_new_reservation_form():
             # Row 1: Property Name, Guest Name, Mobile No, MOB
             {
                 "fields": [
-                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name"},
-                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name"},
-                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number"},
-                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]}
+                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name", "key": "property"},
+                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name", "key": "guest"},
+                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number", "key": "mobile"},
+                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"], "key": "mob"}
                 ]
             },
             # Row 2: Enquiry Date, Check In, Check Out, No of Days
             {
                 "fields": [
-                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date", "default": date.today()},
-                    {"name": "Check In", "type": "date", "label": "Check In", "default": date.today()},
-                    {"name": "Check Out", "type": "date", "label": "Check Out", "default": date.today() + timedelta(days=1)},
-                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"}
+                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date", "default": date.today(), "key": "enquiry"},
+                    {"name": "Check In", "type": "date", "label": "Check In", "default": date.today(), "key": "checkin"},
+                    {"name": "Check Out", "type": "date", "label": "Check Out", "default": date.today() + timedelta(days=1), "key": "checkout"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days", "key": "days"}
                 ]
             },
             # Row 3: No of Adults, No of Children, No of Infants, Breakfast
             {
                 "fields": [
-                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "default": 1, "min_value": 0},
-                    {"name": "No of Children", "type": "number", "label": "No of Children", "default": 0, "min_value": 0},
-                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "default": 0, "min_value": 0},
-                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"]}
+                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "default": 1, "min_value": 0, "key": "adults"},
+                    {"name": "No of Children", "type": "number", "label": "No of Children", "default": 0, "min_value": 0, "key": "children"},
+                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "default": 0, "min_value": 0, "key": "infants"},
+                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"], "key": "breakfast"}
                 ]
             },
             # Row 4: Total Pax, No of Days, Room Type, Room No
             {
                 "fields": [
-                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax"},
-                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"},
-                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type"},
-                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No"}
+                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax", "key": "pax"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days", "key": "days2"},
+                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type", "key": "roomtype"},
+                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No", "key": "room"}
                 ]
             },
             # Row 5: Tariff (per day), Advance Amount, Advance MOP
             {
                 "fields": [
-                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "default": 0.0, "min_value": 0.0, "step": 100.0},
-                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "default": 0.0, "min_value": 0.0, "step": 100.0},
-                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]}
+                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "default": 0.0, "min_value": 0.0, "step": 100.0, "key": "tariff"},
+                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "default": 0.0, "min_value": 0.0, "step": 100.0, "key": "advance"},
+                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"], "key": "advmop"}
                 ]
             },
             # Row 6: Total Tariff, Balance Amount, Balance MOP
             {
                 "fields": [
-                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff"},
-                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount"},
-                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]}
+                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff", "key": "total_tariff"},
+                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount", "key": "balance"},
+                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"], "key": "balmop"}
                 ]
             },
             # Row 7: Booking Date, Invoice No, Plan Status
             {
                 "fields": [
-                    {"name": "Booking Date", "type": "date", "label": "Booking Date", "default": date.today()},
-                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number"},
-                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"]}
+                    {"name": "Booking Date", "type": "date", "label": "Booking Date", "default": date.today(), "key": "booking"},
+                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number", "key": "invoice"},
+                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], "key": "status"}
                 ]
             },
             # Row 8: Remarks
             {
                 "fields": [
-                    {"name": "Remarks", "type": "text_area", "label": "Remarks", "default": ""}
+                    {"name": "Remarks", "type": "text_area", "label": "Remarks", "default": "", "key": "remarks"}
                 ]
             },
             # Row 9: Payment Status, Submitted By
             {
                 "fields": [
-                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"], "default": "Not Paid"},
-                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name"}
+                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"], "default": "Not Paid", "key": "payment_status"},
+                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name", "key": "submitted_by"}
                 ]
             }
         ]
@@ -569,6 +572,7 @@ def show_new_reservation_form():
             form_values["Total Tariff"] = total_tariff
             form_values["Balance Amount"] = balance_amount
 
+            # Submit button
             if st.form_submit_button("💾 Save Reservation", use_container_width=True):
                 required_fields = ["Property Name", "Room No", "Guest Name", "Mobile No"]
                 if not all(form_values.get(field) for field in required_fields):
@@ -638,81 +642,81 @@ def show_edit_form(edit_index):
             # Row 1: Property Name, Guest Name, Mobile No, MOB
             {
                 "fields": [
-                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name"},
-                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name"},
-                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number"},
-                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"]}
+                    {"name": "Property Name", "type": "dynamic_selectbox", "label": "Property Name", "key": "property"},
+                    {"name": "Guest Name", "type": "text", "label": "Guest Name", "placeholder": "Enter guest name", "key": "guest"},
+                    {"name": "Mobile No", "type": "text", "label": "Mobile No", "placeholder": "Enter mobile number", "key": "mobile"},
+                    {"name": "MOB", "type": "selectbox", "label": "MOB (Mode of Booking)", "options": ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"], "key": "mob"}
                 ]
             },
             # Row 2: Enquiry Date, Check In, Check Out, No of Days
             {
                 "fields": [
-                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date"},
-                    {"name": "Check In", "type": "date", "label": "Check In"},
-                    {"name": "Check Out", "type": "date", "label": "Check Out"},
-                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"}
+                    {"name": "Enquiry Date", "type": "date", "label": "Enquiry Date", "key": "enquiry"},
+                    {"name": "Check In", "type": "date", "label": "Check In", "key": "checkin"},
+                    {"name": "Check Out", "type": "date", "label": "Check Out", "key": "checkout"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days", "key": "days"}
                 ]
             },
             # Row 3: No of Adults, No of Children, No of Infants, Breakfast
             {
                 "fields": [
-                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "min_value": 0},
-                    {"name": "No of Children", "type": "number", "label": "No of Children", "min_value": 0},
-                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "min_value": 0},
-                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"]}
+                    {"name": "No of Adults", "type": "number", "label": "No of Adults", "min_value": 0, "key": "adults"},
+                    {"name": "No of Children", "type": "number", "label": "No of Children", "min_value": 0, "key": "children"},
+                    {"name": "No of Infants", "type": "number", "label": "No of Infants", "min_value": 0, "key": "infants"},
+                    {"name": "Breakfast", "type": "selectbox", "label": "Breakfast", "options": ["CP", "EP"], "key": "breakfast"}
                 ]
             },
             # Row 4: Total Pax, No of Days, Room Type, Room No
             {
                 "fields": [
-                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax"},
-                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days"},
-                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type"},
-                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No"}
+                    {"name": "Total Pax", "type": "disabled_text", "label": "Total Pax", "key": "pax"},
+                    {"name": "No of Days", "type": "disabled_text", "label": "No of Days", "key": "days2"},
+                    {"name": "Room Type", "type": "dynamic_selectbox", "label": "Room Type", "key": "roomtype"},
+                    {"name": "Room No", "type": "dynamic_selectbox", "label": "Room No", "key": "room"}
                 ]
             },
             # Row 5: Tariff (per day), Advance Amount, Advance MOP
             {
                 "fields": [
-                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "min_value": 0.0, "step": 100.0},
-                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "min_value": 0.0, "step": 100.0},
-                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]}
+                    {"name": "Tariff", "type": "number", "label": "Tariff (per day)", "min_value": 0.0, "step": 100.0, "key": "tariff"},
+                    {"name": "Advance Amount", "type": "number", "label": "Advance Amount", "min_value": 0.0, "step": 100.0, "key": "advance"},
+                    {"name": "Advance MOP", "type": "selectbox", "label": "Advance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"], "key": "advmop"}
                 ]
             },
             # Row 6: Total Tariff, Balance Amount, Balance MOP
             {
                 "fields": [
-                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff"},
-                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount"},
-                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]}
+                    {"name": "Total Tariff", "type": "disabled_text", "label": "Total Tariff", "key": "total_tariff"},
+                    {"name": "Balance Amount", "type": "disabled_text", "label": "Balance Amount", "key": "balance"},
+                    {"name": "Balance MOP", "type": "selectbox", "label": "Balance MOP", "options": ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"], "key": "balmop"}
                 ]
             },
             # Row 7: Booking Date, Invoice No, Plan Status
             {
                 "fields": [
-                    {"name": "Booking Date", "type": "date", "label": "Booking Date"},
-                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number"},
-                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"]}
+                    {"name": "Booking Date", "type": "date", "label": "Booking Date", "key": "booking"},
+                    {"name": "Invoice No", "type": "text", "label": "Invoice No", "placeholder": "Enter invoice number", "key": "invoice"},
+                    {"name": "Plan Status", "type": "selectbox", "label": "Plan Status", "options": ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], "key": "status"}
                 ]
             },
             # Row 8: Remarks
             {
                 "fields": [
-                    {"name": "Remarks", "type": "text_area", "label": "Remarks"}
+                    {"name": "Remarks", "type": "text_area", "label": "Remarks", "key": "remarks"}
                 ]
             },
             # Row 9: Payment Status, Submitted By
             {
                 "fields": [
-                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"]},
-                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name"}
+                    {"name": "Payment Status", "type": "selectbox", "label": "Payment Status", "options": ["Fully Paid", "Partially Paid", "Not Paid"], "key": "payment_status"},
+                    {"name": "Submitted By", "type": "text", "label": "Submitted By", "placeholder": "Enter submitter name", "key": "submitted_by"}
                 ]
             },
             # Row 10: Modified By, Modified Comments
             {
                 "fields": [
-                    {"name": "Modified By", "type": "text", "label": "Modified By", "placeholder": "Enter modifier name"},
-                    {"name": "Modified Comments", "type": "text_area", "label": "Modified Comments"}
+                    {"name": "Modified By", "type": "text", "label": "Modified By", "placeholder": "Enter modifier name", "key": "modified_by"},
+                    {"name": "Modified Comments", "type": "text_area", "label": "Modified Comments", "key": "modified_comments"}
                 ]
             }
         ]
@@ -813,174 +817,50 @@ def show_edit_form(edit_index):
     except Exception as e:
         st.error(f"Error rendering edit form: {e}")
 
-def show_reservations():
-    """Display all reservations with filtering options."""
-    if not st.session_state.reservations:
-        st.info("No reservations available.")
-        return
+def main():
+    """Main function to handle navigation and page rendering."""
+    if "reservations" not in st.session_state:
+        st.session_state.reservations = load_reservations_from_supabase()
+    if "edit_mode" not in st.session_state:
+        st.session_state.edit_mode = False
+    if "edit_index" not in st.session_state:
+        st.session_state.edit_index = None
+    if "role" not in st.session_state:
+        st.session_state.role = "Staff"  # Default role
 
-    st.header("📋 View Reservations")
-    df = pd.DataFrame(st.session_state.reservations)
-    
-    st.subheader("Filters")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        start_date = st.date_input("Start Date", value=None, key="view_filter_start_date", help="Filter by Check In date range (optional)")
-    with col2:
-        end_date = st.date_input("End Date", value=None, key="view_filter_end_date", help="Filter by Check In date range (optional)")
-    with col3:
-        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="view_filter_status")
-    with col4:
-        filter_check_in_date = st.date_input("Check-in Date", value=None, key="view_filter_check_in_date")
-    with col5:
-        filter_check_out_date = st.date_input("Check-out Date", value=None, key="view_filter_check_out_date")
-    with col6:
-        filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="view_filter_property")
+    st.set_page_config(page_title="Direct Reservations", layout="wide")
+    st.sidebar.title("🏨 Direct Reservations")
+    page = st.sidebar.radio("Navigate", ["Direct Reservations", "Edit Reservations", "Analysis"])
 
-    filtered_df = display_filtered_analysis(df, start_date, end_date, view_mode=True)
-    
-    if filter_status != "All":
-        filtered_df = filtered_df[filtered_df["Plan Status"] == filter_status]
-    if filter_check_in_date:
-        filtered_df = filtered_df[filtered_df["Check In"] == filter_check_in_date]
-    if filter_check_out_date:
-        filtered_df = filtered_df[filtered_df["Check Out"] == filter_check_out_date]
-    if filter_property != "All":
-        filtered_df = filtered_df[filtered_df["Property Name"] == filter_property]
-
-    if filtered_df.empty:
-        st.warning("No reservations match the selected filters.")
-        return
-
-    st.dataframe(
-        filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
-        use_container_width=True
-    )
-
-def show_edit_reservations():
-    """Display reservations for editing with filtering options."""
-    try:
-        st.header("✏️ Edit Reservations")
-        if not st.session_state.reservations:
-            st.info("No reservations available to edit.")
-            return
-
+    if page == "Direct Reservations":
+        show_new_reservation_form()
+    elif page == "Edit Reservations":
+        if st.session_state.edit_mode and st.session_state.edit_index is not None:
+            show_edit_form(st.session_state.edit_index)
+        else:
+            st.header("📋 Edit Reservations")
+            if not st.session_state.reservations:
+                st.warning("No reservations available to edit.")
+            else:
+                booking_ids = [res["Booking ID"] for res in st.session_state.reservations]
+                selected_booking = st.selectbox("Select Booking ID", booking_ids)
+                if selected_booking:
+                    edit_index = booking_ids.index(selected_booking)
+                    st.session_state.edit_mode = True
+                    st.session_state.edit_index = edit_index
+                    show_edit_form(edit_index)
+    elif page == "Analysis":
+        st.header("📊 Reservation Analysis")
         df = pd.DataFrame(st.session_state.reservations)
-        
-        st.subheader("Filters")
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="edit_filter_status")
-        with col2:
-            filter_check_in_date = st.date_input("Check-in Date", value=None, key="edit_filter_check_in_date")
-        with col3:
-            filter_check_out_date = st.date_input("Check-out Date", value=None, key="edit_filter_check_out_date")
-        with col4:
-            filter_enquiry_date = st.date_input("Enquiry Date", value=None, key="edit_filter_enquiry_date")
-        with col5:
-            filter_booking_date = st.date_input("Booking Date", value=None, key="edit_filter_booking_date")
-        with col6:
-            filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="edit_filter_property")
+        if df.empty:
+            st.warning("No reservations available for analysis.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Start Date", value=date.today() - timedelta(days=30))
+            with col2:
+                end_date = st.date_input("End Date", value=date.today())
+            filtered_df = display_filtered_analysis(df, start_date, end_date, view_mode=False)
 
-        filtered_df = df.copy()
-        if filter_status != "All":
-            filtered_df = filtered_df[filtered_df["Plan Status"] == filter_status]
-        if filter_check_in_date:
-            filtered_df = filtered_df[filtered_df["Check In"] == filter_check_in_date]
-        if filter_check_out_date:
-            filtered_df = filtered_df[filtered_df["Check Out"] == filter_check_out_date]
-        if filter_enquiry_date:
-            filtered_df = filtered_df[filtered_df["Enquiry Date"] == filter_enquiry_date]
-        if filter_booking_date:
-            filtered_df = filtered_df[filtered_df["Booking Date"] == filter_booking_date]
-        if filter_property != "All":
-            filtered_df = filtered_df[filtered_df["Property Name"] == filter_property]
-
-        if filtered_df.empty:
-            st.warning("No reservations match the selected filters.")
-            return
-
-        st.dataframe(
-            filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
-            use_container_width=True
-        )
-
-        booking_ids = filtered_df["Booking ID"].tolist()
-        selected_booking_id = st.selectbox("Select Booking ID to Edit", ["None"] + booking_ids, key="edit_booking_id")
-
-        if selected_booking_id != "None":
-            edit_index = next(i for i, res in enumerate(st.session_state.reservations) if res["Booking ID"] == selected_booking_id)
-            st.session_state.edit_mode = True
-            st.session_state.edit_index = edit_index
-            show_edit_form(edit_index)
-    except Exception as e:
-        st.error(f"Error rendering edit reservations: {e}")
-
-def show_analytics():
-    """Display analytics dashboard for Management users."""
-    if st.session_state.role != "Management":
-        st.error("❌ Access Denied: Analytics is available only for Management users.")
-        return
-
-    st.header("📊 Analytics Dashboard")
-    if not st.session_state.reservations:
-        st.info("No reservations available for analysis.")
-        return
-
-    df = pd.DataFrame(st.session_state.reservations)
-    
-    st.subheader("Filters")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        start_date = st.date_input("Start Date", value=None, key="analytics_filter_start_date", help="Filter by Check In date range (optional)")
-    with col2:
-        end_date = st.date_input("End Date", value=None, key="analytics_filter_end_date", help="Filter by Check In date range (optional)")
-    with col3:
-        filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="analytics_filter_status")
-    with col4:
-        filter_check_in_date = st.date_input("Check-in Date", value=None, key="analytics_filter_check_in_date")
-    with col5:
-        filter_check_out_date = st.date_input("Check-out Date", value=None, key="analytics_filter_check_out_date")
-    with col6:
-        filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="analytics_filter_property")
-
-    filtered_df = display_filtered_analysis(df, start_date, end_date, view_mode=False)
-    
-    if filter_status != "All":
-        filtered_df = filtered_df[filtered_df["Plan Status"] == filter_status]
-    if filter_check_in_date:
-        filtered_df = filtered_df[filtered_df["Check In"] == filter_check_in_date]
-    if filter_check_out_date:
-        filtered_df = filtered_df[filtered_df["Check Out"] == filter_check_out_date]
-    if filter_property != "All":
-        filtered_df = filtered_df[filtered_df["Property Name"] == filter_property]
-
-    if filtered_df.empty:
-        st.warning("No reservations match the selected filters.")
-        return
-
-    # Visualizations
-    st.subheader("Visualizations")
-    col1, col2 = st.columns(2)
-    with col1:
-        property_counts = filtered_df["Property Name"].value_counts().reset_index()
-        property_counts.columns = ["Property Name", "Reservation Count"]
-        fig_pie = px.pie(
-            property_counts,
-            values="Reservation Count",
-            names="Property Name",
-            title="Reservation Distribution by Property",
-            height=400
-        )
-        st.plotly_chart(fig_pie, use_container_width=True, key="analytics_pie_chart")
-    with col2:
-        revenue_by_property = filtered_df.groupby("Property Name")["Total Tariff"].sum().reset_index()
-        fig_bar = px.bar(
-            revenue_by_property,
-            x="Property Name",
-            y="Total Tariff",
-            title="Total Revenue by Property",
-            height=400,
-            labels={"Total Tariff": "Revenue (₹)"}
-        )
-        st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart")
+if __name__ == "__main__":
+    main()
