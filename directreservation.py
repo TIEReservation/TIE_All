@@ -399,7 +399,7 @@ def show_new_reservation_form():
             check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
         with row2_col4:
             no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, key=f"{form_key}_no_of_days_row2", help="Check-out - Check-in")
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
         row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
         with row3_col1:
@@ -414,9 +414,9 @@ def show_new_reservation_form():
         row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
         with row4_col1:
             total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, key=f"{form_key}_total_pax", help="Adults + Children + Infants")
         with row4_col2:
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, key=f"{form_key}_no_of_days_row4", help="Check-out - Check-in")
         with row4_col3:
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
@@ -434,7 +434,7 @@ def show_new_reservation_form():
                 room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
             else:
                 st.warning("No rooms available for this room type. Enter manually.")
-                room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
+                room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room_no")
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
         row5_col1, row5_col2, row5_col3 = st.columns(3)
         with row5_col1:
@@ -453,10 +453,10 @@ def show_new_reservation_form():
         row6_col1, row6_col2, row6_col3 = st.columns(3)
         with row6_col1:
             total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, key=f"{form_key}_total_tariff", help="Tariff × No of Days")
         with row6_col2:
             balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, key=f"{form_key}_balance_amount", help="Total Tariff - Advance Amount")
         with row6_col3:
             balance_mop = st.selectbox("Balance MOP",
                                        ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"],
@@ -704,7 +704,7 @@ def show_edit_form(edit_index):
             check_out = st.date_input("Check Out", value=reservation["Check Out"], key=f"{form_key}_checkout")
         with row2_col4:
             no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, key=f"{form_key}_no_of_days_row2", help="Check-out - Check-in")
 
         # Row 3: No of Adults, No of Children, No of Infants, Breakfast
         row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
@@ -721,9 +721,9 @@ def show_edit_form(edit_index):
         row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
         with row4_col1:
             total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, key=f"{form_key}_total_pax", help="Adults + Children + Infants")
         with row4_col2:
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, key=f"{form_key}_no_of_days_row4", help="Check-out - Check-in")
         with row4_col3:
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
@@ -745,7 +745,7 @@ def show_edit_form(edit_index):
                 room_no = st.selectbox("Room No", available_rooms, index=room_no_index, key=f"{form_key}_room")
             else:
                 st.warning("No rooms available for this room type. Enter manually.")
-                room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room")
+                room_no = st.text_input("Room No", value=existing_room_no, key=f"{form_key}_room_no")
 
         # Row 5: Tariff (per day), Advance Amount, Advance MOP
         row5_col1, row5_col2, row5_col3 = st.columns(3)
@@ -766,10 +766,10 @@ def show_edit_form(edit_index):
         row6_col1, row6_col2, row6_col3 = st.columns(3)
         with row6_col1:
             total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, key=f"{form_key}_total_tariff", help="Tariff × No of Days")
         with row6_col2:
             balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, key=f"{form_key}_balance_amount", help="Total Tariff - Advance Amount")
         with row6_col3:
             balance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"]
             balance_mop_index = balance_mop_options.index(reservation["Balance MOP"]) if reservation["Balance MOP"] in balance_mop_options else len(balance_mop_options) - 1
