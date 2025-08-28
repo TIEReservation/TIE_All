@@ -373,14 +373,51 @@ def show_new_reservation_form():
     try:
         st.header("📝 Direct Reservations")
         form_key = "new_reservation"
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Use properties from load_property_room_map
+        # Initialize session state for dynamic updates
+        if f"{form_key}_property" not in st.session_state:
+            st.session_state[f"{form_key}_property"] = sorted(load_property_room_map().keys())[0]
+        if f"{form_key}_roomtype" not in st.session_state:
+            st.session_state[f"{form_key}_roomtype"] = ""
+        # Row 1: Property Name, Guest Name, Mobile No
+        row1_col1, row1_col2, row1_col3 = st.columns(3)
+        with row1_col1:
             property_options = sorted(load_property_room_map().keys())
-            property_name = st.selectbox("Property Name", property_options, key=f"{form_key}_property")
-            
-            # Dynamic room types based on property
+            property_name = st.selectbox("Property Name", property_options,
+                                        key=f"{form_key}_property",
+                                        on_change=lambda: st.session_state.update({f"{form_key}_roomtype": ""}))
+        with row1_col2:
+            guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
+        with row1_col3:
+            mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
+        # Row 2: Enquiry Date, Check In, Check Out, No of Days
+        row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
+        with row2_col1:
+            enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
+        with row2_col2:
+            check_in = st.date_input("Check In", value=date.today(), key=f"{form_key}_checkin")
+        with row2_col3:
+            check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
+        with row2_col4:
+            no_of_days = calculate_days(check_in, check_out)
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+        # Row 3: No of Adults, No of Children, No of Infants, Breakfast
+        row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
+        with row3_col1:
+            adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
+        with row3_col2:
+            children = st.number_input("No of Children", min_value=0, value=0, key=f"{form_key}_children")
+        with row3_col3:
+            infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
+        with row3_col4:
+            breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
+        # Row 4: Total Pax, No of Days, Room Type, Room No
+        row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
+        with row4_col1:
+            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
+            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
+        with row4_col2:
+            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
+        with row4_col3:
             room_map = load_property_room_map()
             available_room_types = sorted(room_map.get(property_name, {}).keys())
             room_type_options = available_room_types + ["Other"] if "Other" not in available_room_types else available_room_types
@@ -391,34 +428,20 @@ def show_new_reservation_form():
                 custom_room_type = st.text_input("Custom Room Type", key=f"{form_key}_custom_roomtype")
             else:
                 custom_room_type = None
-            
-            # Dynamic room numbers based on property and room type
+        with row4_col4:
             available_rooms = sorted(room_map.get(property_name, {}).get(room_type, [])) if room_type != "Other" else []
             if available_rooms:
                 room_no = st.selectbox("Room No", available_rooms, key=f"{form_key}_room")
             else:
                 st.warning("No rooms available for this room type. Enter manually.")
                 room_no = st.text_input("Room No", placeholder="Enter room number", key=f"{form_key}_room")
-            
-            guest_name = st.text_input("Guest Name", placeholder="Enter guest name", key=f"{form_key}_guest")
-            mobile_no = st.text_input("Mobile No", placeholder="Enter mobile number", key=f"{form_key}_mobile")
-        with col2:
-            adults = st.number_input("No of Adults", min_value=0, value=1, key=f"{form_key}_adults")
-            children = st.number_input("No of Children", min_value=0, value=0, key=f"{form_key}_children")
-            infants = st.number_input("No of Infants", min_value=0, value=0, key=f"{form_key}_infants")
-            total_pax = safe_int(adults) + safe_int(children) + safe_int(infants)
-            st.text_input("Total Pax", value=str(total_pax), disabled=True, help="Adults + Children + Infants")
-        with col3:
-            check_in = st.date_input("Check In", value=date.today(), key=f"{form_key}_checkin")
-            check_out = st.date_input("Check Out", value=date.today() + timedelta(days=1), key=f"{form_key}_checkout")
-            no_of_days = calculate_days(check_in, check_out)
-            st.text_input("No of Days", value=str(no_of_days), disabled=True, help="Check-out - Check-in")
-
-        col4, col5 = st.columns(2)
-        with col4:
+        # Row 5: Tariff (per day), Advance Amount, Advance MOP
+        row5_col1, row5_col2, row5_col3 = st.columns(3)
+        with row5_col1:
             tariff = st.number_input("Tariff (per day)", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_tariff")
-            total_tariff = safe_float(tariff) * max(0, no_of_days)
-            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+        with row5_col2:
+            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_advance")
+        with row5_col3:
             advance_mop = st.selectbox("Advance MOP",
                                        ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"],
                                        key=f"{form_key}_advmop")
@@ -426,6 +449,15 @@ def show_new_reservation_form():
                 custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
             else:
                 custom_advance_mop = None
+        # Row 6: Total Tariff, Balance Amount, Balance MOP
+        row6_col1, row6_col2, row6_col3 = st.columns(3)
+        with row6_col1:
+            total_tariff = safe_float(tariff) * max(0, no_of_days)
+            st.text_input("Total Tariff", value=f"₹{total_tariff:.2f}", disabled=True, help="Tariff × No of Days")
+        with row6_col2:
+            balance_amount = max(0, total_tariff - safe_float(advance_amount))
+            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+        with row6_col3:
             balance_mop = st.selectbox("Balance MOP",
                                        ["Cash", "Card", "UPI", "Bank Transfer", "Pending", "Other"],
                                        key=f"{form_key}_balmop")
@@ -433,10 +465,25 @@ def show_new_reservation_form():
                 custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
             else:
                 custom_balance_mop = None
-        with col5:
-            advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0, step=100.0, key=f"{form_key}_advance")
-            balance_amount = max(0, total_tariff - safe_float(advance_amount))
-            st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, help="Total Tariff - Advance Amount")
+        # Row 7: Booking Date, Invoice No, Plan Status
+        row7_col1, row7_col2, row7_col3 = st.columns(3)
+        with row7_col1:
+            booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
+        with row7_col2:
+            invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
+        with row7_col3:
+            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
+        # Row 8: Remarks
+        row8_col1, = st.columns(1)
+        with row8_col1:
+            remarks = st.text_area("Remarks", value="", key=f"{form_key}_remarks")
+        # Row 9: Payment Status, Submitted By, MOB
+        row9_col1, row9_col2, row9_col3 = st.columns(3)
+        with row9_col1:
+            payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")
+        with row9_col2:
+            submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
+        with row9_col3:
             mob = st.selectbox("MOB (Mode of Booking)",
                                ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "TIE-Group", "Others"],
                                key=f"{form_key}_mob")
@@ -444,7 +491,10 @@ def show_new_reservation_form():
                 custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
             else:
                 custom_mob = None
-            if mob == "Online":
+        # Online Source (conditionally shown when MOB is Online)
+        if mob == "Online":
+            row10_col1, = st.columns(1)
+            with row10_col1:
                 online_source = st.selectbox("Online Source",
                                              ["Booking.com", "Agoda Prepaid", "Agoda Booking.com", "Expedia", "MMT", "Cleartrip", "Others"],
                                              key=f"{form_key}_online_source")
@@ -452,25 +502,11 @@ def show_new_reservation_form():
                     custom_online_source = st.text_input("Custom Online Source", key=f"{form_key}_custom_online_source")
                 else:
                     custom_online_source = None
-            else:
-                online_source = None
-                custom_online_source = None
-            invoice_no = st.text_input("Invoice No", placeholder="Enter invoice number", key=f"{form_key}_invoice")
-
-        col6, col7 = st.columns(2)
-        with col6:
-            enquiry_date = st.date_input("Enquiry Date", value=date.today(), key=f"{form_key}_enquiry")
-            booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
-        with col7:
-            breakfast = st.selectbox("Breakfast", ["CP", "EP"], key=f"{form_key}_breakfast")
-            plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key=f"{form_key}_status")
-            submitted_by = st.text_input("Submitted By", placeholder="Enter submitter name", key=f"{form_key}_submitted_by")
-
-        # New fields: Remarks and Payment Status
-        remarks = st.text_area("Remarks", value="", key=f"{form_key}_remarks")  # New text field for Remarks
-        payment_status = st.selectbox("Payment Status", ["Fully Paid", "Partially Paid", "Not Paid"], index=2, key=f"{form_key}_payment_status")  # Default to "Not Paid"
-
+        else:
+            online_source = None
+            custom_online_source = None
         if st.button("💾 Save Reservation", use_container_width=True):
+            # Validation and saving logic remains the same
             if not all([property_name, room_no, guest_name, mobile_no]):
                 st.error("❌ Please fill in all required fields")
             elif check_out < check_in:
@@ -517,8 +553,8 @@ def show_new_reservation_form():
                         "Submitted By": submitted_by,
                         "Modified By": "",
                         "Modified Comments": "",
-                        "Remarks": remarks,  # New field: Remarks
-                        "Payment Status": payment_status  # New field: Payment Status
+                        "Remarks": remarks,
+                        "Payment Status": payment_status
                     }
                     if save_reservation_to_supabase(reservation):
                         st.success(f"✅ Reservation {booking_id} created successfully!")
@@ -593,43 +629,7 @@ def show_edit_reservations():
         with col4:
             filter_enquiry_date = st.date_input("Enquiry Date", value=None, key="edit_filter_enquiry_date")
         with col5:
-            filter_booking_date = st.date_input("Booking Date", value=None, key="edit_filter_booking_date")
-        with col6:
-            filter_property = st.selectbox("Filter by Property", ["All"] + sorted(df["Property Name"].unique()), key="edit_filter_property")
-
-        filtered_df = df.copy()
-        if filter_status != "All":
-            filtered_df = filtered_df[filtered_df["Plan Status"] == filter_status]
-        if filter_check_in_date:
-            filtered_df = filtered_df[filtered_df["Check In"] == filter_check_in_date]
-        if filter_check_out_date:
-            filtered_df = filtered_df[filtered_df["Check Out"] == filter_check_out_date]
-        if filter_enquiry_date:
-            filtered_df = filtered_df[filtered_df["Enquiry Date"] == filter_enquiry_date]
-        if filter_booking_date:
-            filtered_df = filtered_df[filtered_df["Booking Date"] == filter_booking_date]
-        if filter_property != "All":
-            filtered_df = filtered_df[filtered_df["Property Name"] == filter_property]
-
-        if filtered_df.empty:
-            st.warning("No reservations match the selected filters.")
-            return
-
-        st.dataframe(
-            filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Plan Status", "Payment Status", "Remarks"]],
-            use_container_width=True
-        )
-
-        booking_ids = filtered_df["Booking ID"].tolist()
-        selected_booking_id = st.selectbox("Select Booking ID to Edit", ["None"] + booking_ids, key="edit_booking_id")
-
-        if selected_booking_id != "None":
-            edit_index = next(i for i, res in enumerate(st.session_state.reservations) if res["Booking ID"] == selected_booking_id)
-            st.session_state.edit_mode = True
-            st.session_state.edit_index = edit_index
-            show_edit_form(edit_index)
-    except Exception as e:
-        st.error(f"Error rendering edit reservations: {e}")
+            filter_booking_date = st.date_inputブックコード
 
 def show_edit_form(edit_index):
     """Display form for editing an existing reservation with dynamic room assignments."""
