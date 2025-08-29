@@ -16,46 +16,28 @@ import re
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from selenium.common.exceptions import ElementNotInteractableException
-from config import SUPABASE_URL, SUPABASE_KEY
+from typing import List, Dict
+from config import SUPABASE_URL, SUPABASE_KEY, PROPERTIES, OTA_SOURCES
 from utils import safe_int, safe_float, check_duplicate_guest, get_property_name
 
 # Set up logging for debugging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Dictionary of properties and their hotel IDs
-PROPERTIES = {
-    "EdenBeachResort": "30357",
-    "Villa Shakti": "27724",
-    "Le Pondy Beachside": "27723",
-    "Le Royce Villa": "27722",
-    "Le Poshe Suite": "27721",
-    "Le Poshe Luxury": "27720",
-    "Le Poshe Beach View": "27719",
-    "La Villa Heritage": "27711",
-    "La Tamara suite": "27710",
-    "La Tamara Luxury": "27709",
-    "La Paradise Residency": "27707",
-    "La Paradise Luxury": "27706",
-    "La Antilia Luxury": "27704",
-    "La Millionaire Resort": "31550",
-    "Le Park Resort": "32470"
-}
-
-# OTA sources to filter
-OTA_SOURCES = ['Booking.com', 'Expedia', 'Agoda', 'Goibibo', 'MakeMyTrip', 'Stayflexi OTA']
-
-# Initialize Supabase client
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # Chrome profile and ChromeDriver paths
 CHROME_PROFILE_PATH = os.getenv("CHROME_PROFILE_PATH", f"/tmp/chrome_profile_{int(time.time())}")
 CHROMEDRIVER_PATH = "/tmp/chromedriver/chromedriver"
 
-def setup_driver(chrome_profile_path):
-    """Set up Chrome WebDriver with a fresh user profile."""
+def setup_driver(chrome_profile_path: str) -> webdriver.Chrome:
+    """Set up Chrome WebDriver with a fresh user profile.
+    
+    Args:
+        chrome_profile_path (str): Path to Chrome profile directory.
+    
+    Returns:
+        webdriver.Chrome: Initialized WebDriver instance.
+    """
     try:
-        # Clear previous Chrome profile to ensure fresh session
         if os.path.exists(chrome_profile_path):
             shutil.rmtree(chrome_profile_path, ignore_errors=True)
         os.makedirs(chrome_profile_path, exist_ok=True)
@@ -66,17 +48,15 @@ def setup_driver(chrome_profile_path):
         chrome_options.add_argument("profile-directory=Profile 20")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         chrome_options.add_argument("--log-level=3")
-        chrome_options.add_argument("--headless=new")  # Use new headless mode
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
-        chrome_options.add_argument("--window-size=1920,1080")  # Set window size
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.binary_location = "/usr/bin/chromium"
         
-        # Install ChromeDriver in a writable directory
         chromedriver_path = chromedriver_autoinstaller.install(path=os.path.dirname(CHROMEDRIVER_PATH))
         logger.info(f"ChromeDriver installed at: {chromedriver_path}")
-        # Ensure ChromeDriver is executable
         os.chmod(chromedriver_path, 0o755)
         service = ChromeService(executable_path=chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -87,46 +67,75 @@ def setup_driver(chrome_profile_path):
         st.error(f"❌ Failed to initialize browser: {str(e)}")
         raise
 
-def match_patterns_on_page(page_source):
-    """Extract specific fields from page source using regex patterns."""
+def match_patterns_on_page(page_source: str) -> Dict[str, str]:
+    """Extract specific fields from page source using regex patterns.
+    
+    Args:
+        page_source (str): HTML or text content to parse.
+    
+    Returns:
+        Dict[str, str]: Extracted booking fields.
+    """
     patterns = {
-        'booking_id': r'Booking ID.*?[:\s]*([A-Z0-9-]+)',
-        'name': r'Guest Name.*?[:\s]*(.*?)(?=\n|$)',
-        'guest_phone': r'Contact Number.*?[:\s]*(.*?)(?=\n|$)',
-        'check_in': r'Check-in.*?[:\s]*(\d{4}-\d{2}-\d{2})',
-        'check_out': r'Check-out.*?[:\s]*(\d{4}-\d{2}-\d{2})',
-        'total_with_taxes': r'Total with Taxes.*?[:\s]*₹?\s*([\d,]+\.?\d*)',
-        'payment_made': r'Payment Made.*?[:\s]*₹?\s*([\d,]+\.?\d*)',
-        'adults_children_infant': r'Adults/Children/Infant.*?[:\s]*(.*?)(?=\n|$)',
-        'room_number': r'Room Number.*?[:\s]*(.*?)(?=\n|$)',
-        'total_without_taxes': r'Total without Taxes.*?[:\s]*₹?\s*([\d,]+\.?\d*)',
-        'total_tax_amount': r'Total Tax Amount.*?[:\s]*₹?\s*([\d,]+\.?\d*)',
-        'room_type': r'Room Type.*?[:\s]*(.*?)(?=\n|$)',
-        'rate_plan': r'Rate Plan.*?[:\s]*(.*?)(?=\n|$)',
-        'booking_source': r'Booking Source.*?[:\s]*(.*?)(?=\n|$)',
-        'booking_date': r'Booking Date.*?[:\s]*(\d{4}-\d{2}-\d{2})'
+        'booking_id': r'(Booking|Reservation)\s*ID.*?[:\s]+([A-Z0-9-]+)',
+        'name': r'(Guest|Customer)\s*Name.*?[:\s]+(.*?)(?=\n|$)',
+        'guest_phone': r'(Contact|Phone)\s*(Number|No).*?[:\s]+(.*?)(?=\n|$)',
+        'check_in': r'Check-in.*?[:\s]+(\d{4}-\d{2}-\d{2})',
+        'check_out': r'Check-out.*?[:\s]+(\d{4}-\d{2}-\d{2})',
+        'total_with_taxes': r'Total\s*(with|including)\s*Taxes.*?[:\s]+₹?\s*([\d,]+\.?\d*)',
+        'payment_made': r'Payment\s*Made.*?[:\s]+₹?\s*([\d,]+\.?\d*)',
+        'adults_children_infant': r'(Adults/Children/Infant|Guests).*?[:\s]+(.*?)(?=\n|$)',
+        'room_number': r'Room\s*(Number|No).*?[:\s]+(.*?)(?=\n|$)',
+        'total_without_taxes': r'Total\s*(without|excluding)\s*Taxes.*?[:\s]+₹?\s*([\d,]+\.?\d*)',
+        'total_tax_amount': r'Total\s*Tax\s*(Amount|).*?[:\s]+₹?\s*([\d,]+\.?\d*)',
+        'room_type': r'Room\s*Type.*?[:\s]+(.*?)(?=\n|$)',
+        'rate_plan': r'Rate\s*Plan.*?[:\s]+(.*?)(?=\n|$)',
+        'booking_source': r'(Booking|Reservation)\s*Source.*?[:\s]+(.*?)(?=\n|$)',
+        'booking_date': r'(Booking|Reservation)\s*Date.*?[:\s]+(\d{4}-\d{2}-\d{2})'
     }
     extracted_data = {}
+    unmatched = []
     for key, pattern in patterns.items():
         match = re.search(pattern, page_source, re.IGNORECASE | re.DOTALL)
-        extracted_data[key] = match.group(1).strip() if match else ''
+        if match and len(match.groups()) > 1:
+            extracted_data[key] = match.group(2).strip()
+        elif match:
+            extracted_data[key] = match.group(1).strip()
+        else:
+            extracted_data[key] = ''
+            unmatched.append(key)
+    if unmatched:
+        logger.warning(f"Unmatched fields: {unmatched}")
     return extracted_data
 
-def extract_booking_data_from_text(text):
-    """Extract booking data from text using regex."""
-    booking_data = match_patterns_on_page(text)
-    return booking_data
+def extract_booking_data_from_text(text: str) -> Dict[str, str]:
+    """Extract booking data from text using regex.
+    
+    Args:
+        text (str): Text content to parse.
+    
+    Returns:
+        Dict[str, str]: Extracted booking data.
+    """
+    return match_patterns_on_page(text)
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry_if_exception_type=(ElementNotInteractableException,))
-def fetch_and_display_bookings(driver, wait, hotel_id):
-    """Fetch and display all booking information entries with retries."""
+def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, hotel_id: str) -> List[Dict[str, str]]:
+    """Fetch and display all booking information entries with retries.
+    
+    Args:
+        driver (webdriver.Chrome): Selenium WebDriver instance.
+        wait (WebDriverWait): WebDriverWait instance for waiting.
+        hotel_id (str): Hotel ID for the property.
+    
+    Returns:
+        List[Dict[str, str]]: List of extracted booking data.
+    """
     st.write("🔹 Fetching all booking information entries...")
     bookings = []
-
-    time.sleep(10)  # Increased wait for page load
+    attempt = 0
 
     try:
-        # Try primary selector for booking cards
         booking_cards = wait.until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
         st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-root")
@@ -134,14 +143,12 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
         logger.warning(f"Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
         st.write(f"⚠️ Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
         try:
-            # Fallback selector
             booking_cards = wait.until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical")))
             st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-root")
         except Exception as e:
             logger.warning(f"Could not find booking entries with MuiCollapse-root: {str(e)}")
             st.write(f"⚠️ Could not find booking entries with MuiCollapse-root: {str(e)}")
-            # Fallback: Scrape page source directly
             try:
                 st.write("🔹 Attempting to scrape booking data from page source...")
                 page_source = driver.page_source
@@ -163,22 +170,21 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
                 st.error(f"❌ Error scraping page source: {str(e)}")
                 return bookings
 
-    # Debug: Log HTML of booking cards
     if booking_cards:
         logger.info(f"Found {len(booking_cards)} booking cards. First card HTML: {booking_cards[0].get_attribute('outerHTML')}")
-        # Save screenshot for debugging
-        try:
-            driver.save_screenshot(f"/tmp/booking_page_{hotel_id}.png")
-            logger.info(f"Screenshot saved to /tmp/booking_page_{hotel_id}.png")
-        except Exception as e:
-            logger.warning(f"Failed to save screenshot: {str(e)}")
+        if not os.getenv("STREAMLIT_CLOUD"):
+            try:
+                driver.save_screenshot(f"/tmp/booking_page_{hotel_id}.png")
+                logger.info(f"Screenshot saved to /tmp/booking_page_{hotel_id}.png")
+            except Exception as e:
+                logger.warning(f"Failed to save screenshot: {str(e)}")
 
     for i, card in enumerate(booking_cards):
         st.write(f"\n🔖 Booking #{i+1}:")
         try:
-            # Ensure element is visible and interactable
+            attempt += 1
+            logger.info(f"Attempt {attempt} to click booking #{i+1}")
             wait.until(EC.element_to_be_clickable((By.ID, card.get_attribute('id')) if card.get_attribute('id') else (By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
-            # Try JavaScript click as fallback
             driver.execute_script("arguments[0].click();", card)
             time.sleep(2)
             page_source = driver.page_source
@@ -191,9 +197,8 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
             else:
                 st.write("⚠️ No booking ID found, skipping...")
         except Exception as e:
-            logger.error(f"Error extracting booking #{i+1}: {str(e)}")
+            logger.error(f"Error extracting booking #{i+1} (attempt {attempt}): {str(e)}")
             st.write(f"⚠️ Error extracting booking #{i+1}: {str(e)}")
-            # Fallback to scraping card content directly
             try:
                 st.write(f"🔹 Attempting to scrape booking #{i+1} directly...")
                 card_source = card.get_attribute('outerHTML')
@@ -211,24 +216,39 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
     
     return bookings
 
-def is_ota_booking(booking):
-    """Check if booking is from OTA."""
+def is_ota_booking(booking: Dict[str, str]) -> bool:
+    """Check if booking is from OTA.
+    
+    Args:
+        booking (Dict[str, str]): Booking data dictionary.
+    
+    Returns:
+        bool: True if booking is from an OTA source.
+    """
     source = booking.get('booking_source', '').lower()
     return any(ota.lower() in source for ota in OTA_SOURCES)
 
-def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
-    """Login to Stayflexi and navigate to reservations."""
+def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: str) -> List[Dict[str, str]]:
+    """Login to Stayflexi and navigate to reservations.
+    
+    Args:
+        chrome_profile_path (str): Path to Chrome profile directory.
+        property_name (str): Name of the property.
+        hotel_id (str): Hotel ID for the property.
+    
+    Returns:
+        List[Dict[str, str]]: List of extracted bookings.
+    """
     driver = None
     try:
-        # Debug secrets
         logger.info(f"Available secrets: {list(st.secrets.keys())}")
         if "stayflexi" not in st.secrets:
             logger.error("Missing 'stayflexi' secrets in Streamlit configuration")
-            st.error("❌ Missing Stayflexi credentials. Please add 'stayflexi' email and password to Streamlit secrets. Available secrets: {}".format(list(st.secrets.keys())))
+            st.error(f"❌ Missing Stayflexi credentials. Available secrets: {list(st.secrets.keys())}")
             return []
         
         driver = setup_driver(chrome_profile_path)
-        wait = WebDriverWait(driver, 30)  # Increased timeout
+        wait = WebDriverWait(driver, 30)
         bookings = []
         
         st.write(f"🔹 Opening StayFlexi for {property_name}...")
@@ -259,14 +279,12 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
             st.warning(f"⚠️ Login failed for {property_name}: {str(e)}")
             return []
         
-        # Navigate to dashboard
         dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
         dashboard_button.click()
         logger.info(f"Clicked dashboard button for hotel ID {hotel_id}")
         time.sleep(3)
         driver.switch_to.window(driver.window_handles[-1])
         
-        # Navigate to reservations
         reservations_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Reservations')]")))
         reservations_button.click()
         logger.info(f"Clicked Reservations button for {property_name}")
@@ -289,8 +307,13 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
             except Exception as e:
                 logger.warning(f"Failed to close WebDriver for {property_name}: {str(e)}")
 
-def store_in_supabase(bookings, property_name):
-    """Store OTA bookings in Supabase 'otabooking' table."""
+def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> None:
+    """Store OTA bookings in Supabase 'otabooking' table.
+    
+    Args:
+        bookings (List[Dict[str, str]]): List of booking data.
+        property_name (str): Name of the property.
+    """
     for booking in bookings:
         try:
             is_duplicate, existing_id = check_duplicate_guest(
@@ -332,8 +355,13 @@ def store_in_supabase(bookings, property_name):
             st.error(f"❌ Error storing booking {booking.get('booking_id', 'unknown')}: {str(e)}")
             logger.error(f"Error storing booking for {property_name}: {str(e)}")
 
-def fetch_for_property(property_name, hotel_id):
-    """Fetch OTA bookings for a single property."""
+def fetch_for_property(property_name: str, hotel_id: str) -> None:
+    """Fetch OTA bookings for a single property.
+    
+    Args:
+        property_name (str): Name of the property.
+        hotel_id (str): Hotel ID for the property.
+    """
     bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
     if bookings:
         store_in_supabase(bookings, property_name)
@@ -341,7 +369,7 @@ def fetch_for_property(property_name, hotel_id):
         st.warning(f"⚠️ No bookings fetched for {property_name}")
         logger.warning(f"No bookings fetched for {property_name}")
 
-def show_online_reservations():
+def show_online_reservations() -> None:
     """Streamlit UI for online reservations."""
     st.title("📡 Online Reservations (OTA Bookings)")
     st.markdown("Sync bookings from Stayflexi for each property.")
@@ -355,18 +383,4 @@ def show_online_reservations():
                     fetch_for_property(name, id)
                     progress_bar.progress((i + 1) / total)
                 except Exception as e:
-                    st.error(f"❌ Error syncing {name}: {str(e)}")
-                    logger.error(f"Error syncing {name}: {str(e)}")
-            st.success("✅ All properties synced!")
-            logger.info("Completed syncing all properties")
-
-    for name, id in PROPERTIES.items():
-        col1, col2 = st.columns([4, 1])
-        col1.write(f"🏨 {name} (ID: {id})")
-        if col2.button(f"🔄 Sync {name}", key=f"sync_{name}"):
-            with st.spinner(f"Syncing {name}..."):
-                try:
-                    fetch_for_property(name, id)
-                except Exception as e:
-                    st.error(f"❌ Error syncing {name}: {str(e)}")
-                    logger.error(f"Error syncing {name}: {str(e)}")
+                    st.error(f"
