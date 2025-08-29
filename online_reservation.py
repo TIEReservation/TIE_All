@@ -231,20 +231,431 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
             try:
                 adults_children_found = False
                 
-                # Strategy 1: Look for numeric patterns like "7/0/0" or "2 Adults, 0 Children"
-                numeric_pattern_elements = driver.find_elements(By.XPATH, 
-                    "//*[contains(text(), '/') and (contains(text(), '0') or contains(text(), '1') or contains(text(), '2') or contains(text(), '3') or contains(text(), '4') or contains(text(), '5') or contains(text(), '6') or contains(text(), '7') or contains(text(), '8') or contains(text(), '9'))]")
+                # Strategy 1: Look for custSubVal class specifically (your provided selector)
+                try:
+                    custSubVal_elements = driver.find_elements(By.CSS_SELECTOR, "div.custSubVal")
+                    for elem in custSubVal_elements:
+                        text = elem.text.strip()
+                        # Look for patterns like "2/1/0" or similar
+                        if re.search(r'\d+/\d+/\d+', text):
+                            booking['adults_children_infant'] = text
+                            adults_children_found = True
+                            logger.info(f"Adults/Children/Infant found via custSubVal class: {booking['adults_children_infant']}")
+                            break
+                except Exception as e:
+                    logger.warning(f"Could not find custSubVal elements: {str(e)}")
                 
-                for elem in numeric_pattern_elements:
-                    text = elem.text.strip()
-                    # Look for patterns like "7/0/0" or similar
-                    if re.search(r'\d+/\d+/\d+', text) and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes']):
-                        booking['adults_children_infant'] = text
-                        adults_children_found = True
-                        logger.info(f"Adults/Children/Infant found via pattern search: {booking['adults_children_infant']}")
-                        break
+                # Strategy 2: Look for numeric patterns like "7/0/0" in any element
+                if not adults_children_found:
+                    try:
+                        numeric_pattern_elements = driver.find_elements(By.XPATH, 
+                            "//*[contains(text(), '/') and (contains(text(), '0') or contains(text(), '1') or contains(text(), '2') or contains(text(), '3') or contains(text(), '4') or contains(text(), '5') or contains(text(), '6') or contains(text(), '7') or contains(text(), '8') or contains(text(), '9'))]")
+                        
+                        for elem in numeric_pattern_elements:
+                            text = elem.text.strip()
+                            # Look for patterns like "7/0/0" or similar
+                            if re.search(r'^\d+/\d+/\d+
+
+            # Extract financial details
+            try:
+                financial_section = wait.until(EC.presence_of_element_located(
+                    (By.XPATH, "//*[@id='kt_content']/div/div/div[1]/div/div[2]/div/div[2]/div")))
+                financial_text = financial_section.text.strip().split('\n')
+
+                for i, line in enumerate(financial_text):
+                    if "Total without taxes" in line:
+                        booking['total_without_taxes'] = re.sub(r'(INR|Rs\.)\s*', '', financial_text[i + 1].strip())
+                    elif "Total tax amount" in line:
+                        booking['total_tax_amount'] = re.sub(r'(INR|Rs\.)\s*', '', financial_text[i + 1].strip())
+                    elif "Total with taxes and fees" in line:
+                        booking['total_with_taxes'] = re.sub(r'(INR|Rs\.)\s*', '', financial_text[i + 1].strip())
+                    elif "Payment made" in line:
+                        booking['payment_made'] = re.sub(r'(INR|Rs\.)\s*', '', financial_text[i + 1].strip())
+                    elif "Balance due" in line:
+                        booking['balance_due'] = re.sub(r'(INR|Rs\.)\s*', '', financial_text[i + 1].strip())
+
+                logger.info(f"Financial details extracted for {booking['booking_id']}")
+            except Exception as e:
+                logger.warning(f"Could not fetch financial details: {str(e)}")
                 
-                # Strategy 2: If not found, try the original XPath as fallback
+            logger.info(f"Successfully fetched folio details for {booking['booking_id']}")
+        else:
+            logger.warning("No booking ID found, skipping folio fetch")
+            
+    except Exception as e:
+        logger.error(f"Error fetching folio details: {str(e)}")
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, hotel_id: str) -> List[Dict[str, str]]:
+    """Fetch and display all booking information entries - using logic from Daily_DMS_All.py"""
+    property_name = get_property_name(hotel_id) or "Unknown"
+    st.write(f"Fetching all booking information entries for {property_name}...")
+    bookings = []
+    current_url = driver.current_url
+
+    time.sleep(8)
+
+    # Store all booking texts first, then process them
+    booking_texts = []
+    
+    try:
+        # Try to find booking cards using the same selectors as Daily_DMS_All.py
+        booking_cards = wait.until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical.MuiCollapse-hidden")))
+        st.write(f"Found {len(booking_cards)} booking entries using MuiCollapse-hidden for {property_name}")
+    except Exception as e:
+        logger.warning(f"Could not find booking entries with MuiCollapse-hidden: {str(e)}")
+        try:
+            booking_cards = wait.until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-content.Mui-expanded.MuiAccordionSummary-contentGutters")))
+            st.write(f"Found {len(booking_cards)} booking entries using MuiAccordionSummary-expanded for {property_name}")
+        except Exception as e:
+            logger.warning(f"Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
+            booking_cards = []
+
+    # First pass: Extract all booking texts without navigating away
+    for i, card in enumerate(booking_cards):
+        st.write(f"Extracting text from booking #{i+1} for {property_name}:")
+        try:
+            # Check if element is collapsed and expand it
+            if "MuiCollapse-hidden" in card.get_attribute("class"):
+                logger.info("Element is collapsed, attempting to expand...")
+                accordion_button = card.find_element(By.XPATH, "./preceding-sibling::div[contains(@class, 'MuiAccordionSummary-root')]")
+                driver.execute_script("arguments[0].scrollIntoView(); arguments[0].click();", accordion_button)
+                time.sleep(2)
+
+            # Get the accordion container and extract text
+            accordion = card.find_element(By.XPATH, "./ancestor::div[contains(@class, 'MuiAccordion-root')]")
+            summary_content = accordion.find_element(By.CSS_SELECTOR, "div.MuiAccordionSummary-content")
+            raw_text = summary_content.text.strip()
+
+            logger.info(f"Raw text: {raw_text[:200]}{'...' if len(raw_text) > 200 else ''}")
+            booking_texts.append(raw_text)
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from booking #{i+1}: {str(e)}")
+            st.error(f"Error extracting text from booking #{i+1}: {str(e)}")
+
+    # Second pass: Process each booking text and fetch folio details
+    for i, raw_text in enumerate(booking_texts):
+        st.write(f"Processing booking #{i+1} for {property_name}:")
+        try:
+            # Extract booking data using the improved function
+            booking_data = extract_booking_data_from_text(raw_text, hotel_id)
+            
+            if booking_data.get('booking_id'):
+                # Fetch additional details from folio page (this navigates away)
+                fetch_folio_details(driver, wait, booking_data, hotel_id)
+                
+                # Navigate back to reservations page for next booking
+                if i < len(booking_texts) - 1:  # Don't navigate back on last booking
+                    driver.get(current_url)
+                    time.sleep(3)
+                    # Wait for page to reload
+                    wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+                
+                bookings.append(booking_data)
+                st.write(f"Extracted booking: {booking_data.get('booking_id')} for {property_name}")
+                logger.info(f"Successfully extracted booking: {booking_data.get('booking_id')}")
+            else:
+                st.write(f"No booking ID found for booking #{i+1} in {property_name}, skipping...")
+                logger.warning(f"No booking ID found in booking #{i+1}")
+
+        except Exception as e:
+            logger.error(f"Error processing booking #{i+1}: {str(e)}")
+            st.error(f"Error processing booking #{i+1}: {str(e)}")
+            # Try to navigate back to reservations page if there was an error
+            try:
+                driver.get(current_url)
+                time.sleep(3)
+                wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+            except Exception as nav_error:
+                logger.warning(f"Could not navigate back to reservations: {str(nav_error)}")
+
+    # If no booking cards found, try JavaScript approach from Daily_DMS_All.py
+    if not booking_cards:
+        st.write(f"No booking cards found, trying JavaScript approach for {property_name}...")
+        js_bookings = match_patterns_on_page(driver, hotel_id)
+        bookings.extend(js_bookings)
+
+    return bookings
+
+def match_patterns_on_page(driver: webdriver.Chrome, hotel_id: str) -> List[Dict[str, str]]:
+    """Look for booking patterns directly on page using JavaScript - from Daily_DMS_All.py"""
+    logger.info("Executing JavaScript to find booking patterns...")
+    
+    js_find_bookings = f"""
+    const elements = [];
+    const nodeIterator = document.createNodeIterator(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        {{ acceptNode: function(node) {{ 
+            return node.textContent.includes('SFBOOKING_{hotel_id}') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }} }}
+    );
+    
+    let node;
+    while(node = nodeIterator.nextNode()) {{
+        let parent = node.parentElement;
+        let depth = 0;
+        while(parent && depth < 5) {{
+            if (parent.offsetWidth > 100 && parent.offsetHeight > 50) {{
+                elements.push({{
+                    text: parent.innerText,
+                    html: parent.outerHTML
+                }});
+                break;
+            }}
+            parent = parent.parentElement;
+            depth++;
+        }}
+    }}
+    return elements;
+    """
+    
+    booking_elements = driver.execute_script(js_find_bookings)
+    bookings = []
+    
+    if booking_elements:
+        st.write(f"Found {len(booking_elements)} booking elements using JavaScript")
+        for i, elem in enumerate(booking_elements[:3]):
+            st.write(f"Booking Element #{i+1}:")
+            text = elem.get('text', '')
+            logger.info(f"Raw text: {text[:200]}...")
+            booking_data = extract_booking_data_from_text(text, hotel_id)
+            
+            if booking_data.get('booking_id'):
+                bookings.append(booking_data)
+                st.write(f"Extracted booking: {booking_data.get('booking_id')}")
+            else:
+                st.write(f"No booking ID found in element #{i+1}")
+    else:
+        logger.warning("No booking elements found using JavaScript")
+        st.warning("No booking elements found using JavaScript")
+
+    return bookings
+
+def is_ota_booking(booking: Dict[str, str]) -> bool:
+    """Check if booking is from OTA."""
+    source = booking.get('booking_source', '').lower()
+    return any(ota.lower() in source for ota in OTA_SOURCES)
+
+def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: str) -> List[Dict[str, str]]:
+    """Login to Stayflexi and navigate to reservations."""
+    driver = None
+    try:
+        logger.info(f"Available secrets: {list(st.secrets.keys())}")
+        if "stayflexi" not in st.secrets:
+            logger.error(f"Missing 'stayflexi' secrets for {property_name} (ID: {hotel_id})")
+            st.error(f"Missing Stayflexi credentials for {property_name} (ID: {hotel_id}). Available secrets: {list(st.secrets.keys())}")
+            return []
+        
+        driver = setup_driver(chrome_profile_path)
+        wait = WebDriverWait(driver, 30)
+        bookings = []
+        
+        st.write(f"Opening StayFlexi for {property_name} (ID: {hotel_id})...")
+        driver.get("https://app.stayflexi.com/auth/login")
+        logger.info(f"Navigated to Stayflexi login page for {property_name}")
+        
+        try:
+            email_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='text']")))
+            email_field.clear()
+            email_field.send_keys(st.secrets["stayflexi"]["email"])
+            logger.info(f"Entered email for {property_name}")
+            
+            login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
+            login_button.click()
+            logger.info(f"Clicked first Sign In button for {property_name}")
+            
+            password_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
+            password_field.send_keys(st.secrets["stayflexi"]["password"])
+            logger.info(f"Entered password for {property_name}")
+            
+            login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
+            login_button.click()
+            st.write(f"Logged in successfully for {property_name}")
+            logger.info(f"Logged in successfully for {property_name}")
+            wait.until(EC.presence_of_element_located((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
+        except Exception as e:
+            logger.warning(f"Login attempt failed for {property_name} (ID: {hotel_id}): {str(e)}")
+            st.error(f"Login failed for {property_name} (ID: {hotel_id}): {str(e)}")
+            return []
+        
+        dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
+        dashboard_button.click()
+        logger.info(f"Clicked dashboard button for hotel ID {hotel_id}")
+        time.sleep(3)
+        driver.switch_to.window(driver.window_handles[-1])
+        
+        reservations_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+        reservations_button.click()
+        logger.info(f"Clicked Reservations button for {property_name}")
+        
+        # Fetch all bookings using the improved logic
+        all_bookings = fetch_and_display_bookings(driver, wait, hotel_id)
+        
+        # Filter for OTA bookings
+        bookings = [b for b in all_bookings if is_ota_booking(b)]
+        st.write(f"Fetched {len(bookings)} OTA bookings out of {len(all_bookings)} total bookings for {property_name}")
+        logger.info(f"Fetched {len(bookings)} OTA bookings for {property_name}")
+        
+        return bookings
+    except Exception as e:
+        logger.error(f"Error for {property_name} (ID: {hotel_id}): {str(e)}")
+        st.error(f"Error for {property_name} (ID: {hotel_id}): {str(e)}")
+        return []
+    finally:
+        if driver:
+            try:
+                driver.quit()
+                logger.info(f"Closed WebDriver for {property_name}")
+            except Exception as e:
+                logger.warning(f"Failed to close WebDriver for {property_name}: {str(e)}")
+
+def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> None:
+    """Store OTA bookings in Supabase 'otabooking' table."""
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    for booking in bookings:
+        if not booking.get('booking_id'):
+            logger.warning(f"Skipping booking for {property_name} due to missing booking_id")
+            st.warning(f"Skipping booking for {property_name}: No booking ID found")
+            continue
+        try:
+            # Check if this exact combination of booking_id, property, and room_number already exists
+            existing_exact_booking = supabase.table("otabooking").select("*").eq("property", property_name).eq("booking_id", booking.get('booking_id')).eq("room_number", booking.get('room_number', 'N/A')).execute()
+            
+            if existing_exact_booking.data:
+                st.warning(f"Exact duplicate: Booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} already exists for {property_name}")
+                logger.info(f"Skipped exact duplicate booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
+                continue
+
+            # Check if there are other rooms for this booking_id (multi-room scenario)
+            other_rooms = supabase.table("otabooking").select("room_number").eq("property", property_name).eq("booking_id", booking.get('booking_id')).execute()
+            
+            if other_rooms.data:
+                existing_rooms = [room['room_number'] for room in other_rooms.data]
+                current_room = booking.get('room_number', 'N/A')
+                
+                if current_room not in existing_rooms:
+                    st.info(f"Multi-room booking detected: {booking.get('booking_id')} adding room {current_room} (existing rooms: {', '.join(existing_rooms)}) for {property_name}")
+                    logger.info(f"Adding additional room {current_room} for booking {booking.get('booking_id')} at {property_name}")
+                else:
+                    st.warning(f"Room {current_room} already exists for booking {booking.get('booking_id')} at {property_name}")
+                    logger.info(f"Skipped duplicate room {current_room} for booking {booking.get('booking_id')} at {property_name}")
+                    continue
+
+            # Additional guest-based duplicate check (for different booking IDs but same guest and room)
+            is_duplicate, existing_id = check_duplicate_guest(
+                supabase, "otabooking", 
+                booking.get('name', ''), 
+                booking.get('phone', ''), 
+                booking.get('room_number', '')
+            )
+            if is_duplicate and existing_id != booking.get('booking_id'):
+                st.warning(f"Guest duplicate: {booking.get('name')} already has booking {existing_id} for same room at {property_name}")
+                logger.info(f"Skipped guest duplicate: {booking.get('name')} already has booking {existing_id} for {property_name}")
+                continue
+
+            # Parse dates from booking_period
+            check_in = ""
+            check_out = ""
+            if booking.get('booking_period'):
+                try:
+                    dates = booking['booking_period'].split(' - ')
+                    if len(dates) == 2:
+                        check_in_date = datetime.strptime(dates[0], "%b %d, %Y %I:%M %p")
+                        check_out_date = datetime.strptime(dates[1], "%b %d, %Y %I:%M %p")
+                        check_in = check_in_date.strftime("%Y-%m-%d")
+                        check_out = check_out_date.strftime("%Y-%m-%d")
+                except ValueError as e:
+                    logger.warning(f"Could not parse booking period '{booking.get('booking_period')}': {str(e)}")
+        
+            # Create a unique identifier for multi-room bookings by appending room number to booking_id
+            unique_booking_id = f"{booking.get('booking_id')}_room_{booking.get('room_number', 'N/A')}"
+            
+            data = {
+                "property": property_name,
+                "report_date": datetime.now().date().isoformat(),
+                "booking_date": datetime.now().date().isoformat(),  # Using report date as booking date
+                "booking_id": unique_booking_id,  # Use unique booking ID to avoid constraint violation
+                "original_booking_id": booking.get('booking_id'),  # Store original booking ID for reference
+                "booking_source": booking.get('booking_source', ''),
+                "guest_name": booking.get('name', ''),
+                "guest_phone": booking.get('phone', ''),
+                "check_in": check_in,
+                "check_out": check_out,
+                "total_with_taxes": safe_float(booking.get('total_with_taxes')),
+                "payment_made": safe_float(booking.get('payment_made')),
+                "adults_children_infant": booking.get('adults_children_infant', 'N/A'),
+                "room_number": booking.get('room_number', 'N/A'),
+                "total_without_taxes": safe_float(booking.get('total_without_taxes')),
+                "total_tax_amount": safe_float(booking.get('total_tax_amount')),
+                "room_type": booking.get('room_type', 'N/A'),
+                "rate_plan": booking.get('rate_plan', 'N/A'),
+                "created_at": datetime.now().isoformat()
+            }
+        
+            supabase.table("otabooking").insert(data).execute()
+            st.success(f"Stored booking {booking.get('booking_id')} (room {booking.get('room_number', 'N/A')}) for {property_name}")
+            logger.info(f"Stored booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
+            
+        except Exception as e:
+            # Handle the specific unique constraint violation
+            if 'duplicate key value violates unique constraint' in str(e):
+                st.warning(f"Booking {booking.get('booking_id')} already exists in database for {property_name}")
+                logger.info(f"Skipped existing booking {booking.get('booking_id')} for {property_name}")
+            else:
+                st.error(f"Error storing booking {booking.get('booking_id', 'unknown')} for {property_name}: {str(e)}")
+                logger.error(f"Error storing booking for {property_name}: {str(e)}")
+
+def fetch_for_property(property_name: str, hotel_id: str) -> None:
+    """Fetch OTA bookings for a single property."""
+    bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
+    if bookings:
+        store_in_supabase(bookings, property_name)
+    else:
+        st.warning(f"No bookings fetched for {property_name} (ID: {hotel_id})")
+        logger.warning(f"No bookings fetched for {property_name}")
+
+def show_online_reservations() -> None:
+    """Streamlit UI for online reservations."""
+    st.title("Online Reservations (OTA Bookings)")
+    st.markdown("Sync bookings from Stayflexi for each property.")
+
+    if st.button("Sync All Properties", key="sync_all"):
+        with st.spinner("Syncing all properties..."):
+            progress_bar = st.progress(0)
+            total = len(PROPERTIES)
+            for i, (name, id) in enumerate(PROPERTIES.items()):
+                try:
+                    fetch_for_property(name, id)
+                    progress_bar.progress((i + 1) / total)
+                except Exception as e:
+                    st.error(f"Error syncing {name} (ID: {id}): {str(e)}")
+                    logger.error(f"Error syncing {name}: {str(e)}")
+            st.success("All properties synced!")
+            logger.info("Completed syncing all properties")
+
+    for name, id in PROPERTIES.items():
+        col1, col2 = st.columns([4, 1])
+        col1.write(f"Hotel: {name} (ID: {id})")
+        if col2.button(f"Sync {name}", key=f"sync_{name}"):
+            with st.spinner(f"Syncing {name}..."):
+                try:
+                    fetch_for_property(name, id)
+                except Exception as e:
+                    st.error(f"Error syncing {name} (ID: {id}): {str(e)}")
+                    logger.error(f"Error syncing {name}: {str(e)}")
+    , text) and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes']):
+                                booking['adults_children_infant'] = text
+                                adults_children_found = True
+                                logger.info(f"Adults/Children/Infant found via pattern search: {booking['adults_children_infant']}")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Pattern search failed: {str(e)}")
+                
+                # Strategy 3: If not found, try the original XPath as fallback
                 if not adults_children_found:
                     try:
                         adults_children_elem = driver.find_element(By.XPATH, "//*[@id='panel1a-content']/div/div/div[2]/div/div[8]/div/div[2]")
@@ -253,14 +664,24 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                             booking['adults_children_infant'] = text
                             adults_children_found = True
                             logger.info(f"Adults/Children/Infant found via original XPath: {booking['adults_children_infant']}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Original XPath failed: {str(e)}")
                 
-                # Strategy 3: Use JavaScript to search for numeric patterns
+                # Strategy 4: Use JavaScript to search for custSubVal class and numeric patterns
                 if not adults_children_found:
                     try:
                         js_adults_children = driver.execute_script("""
                             function findAdultsChildren() {
+                                // First try to find custSubVal elements
+                                const custSubValElements = document.querySelectorAll('div.custSubVal');
+                                for (let elem of custSubValElements) {
+                                    const text = elem.textContent.trim();
+                                    if (/^\d+\/\d+\/\d+$/.test(text)) {
+                                        return text;
+                                    }
+                                }
+                                
+                                // Fallback to tree walker for any numeric patterns
                                 const walker = document.createTreeWalker(
                                     document.getElementById('panel1a-content') || document.body,
                                     NodeFilter.SHOW_TEXT,
@@ -274,7 +695,7 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                                 while (node = walker.nextNode()) {
                                     const text = node.textContent.trim();
                                     if (text && 
-                                        /\d+\/\d+\/\d+/.test(text) &&
+                                        /^\d+\/\d+\/\d+$/.test(text) &&
                                         !text.includes('Add') && 
                                         !text.includes('View') && 
                                         !text.includes('booking') &&
