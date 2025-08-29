@@ -6,7 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
+import chromedriver_autoinstaller
 from datetime import datetime
 import time
 import re
@@ -62,9 +62,9 @@ def setup_driver(chrome_profile_path):
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
         chrome_options.add_argument("--window-size=1920,1080")  # Set window size
-        # Explicitly use ChromeService
-        service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Install ChromeDriver compatible with installed Chrome
+        chromedriver_autoinstaller.install()
+        driver = webdriver.Chrome(options=chrome_options)
         logger.info("Chrome WebDriver initialized successfully")
         return driver
     except Exception as e:
