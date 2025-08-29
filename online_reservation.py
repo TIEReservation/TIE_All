@@ -10,9 +10,9 @@ import chromedriver_autoinstaller
 import os
 import logging
 import shutil
+import time
 from datetime import datetime
 import re
-import time
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from selenium.common.exceptions import ElementNotInteractableException
