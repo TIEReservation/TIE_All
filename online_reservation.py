@@ -433,15 +433,41 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
             st.warning(f"Skipping booking for {property_name}: No booking ID found")
             continue
         try:
+            # First check if this exact booking_id already exists for this property
+            existing_booking = supabase.table("otabooking").select("*").eq("property", property_name).eq("booking_id", booking.get('booking_id')).execute()
+            
+            if existing_booking.data:
+                # Check if it's the same room number - if different, it might be a multi-room booking
+                existing_room = existing_booking.data[0].get('room_number', '')
+                current_room = booking.get('room_number', '')
+                
+                if existing_room == current_room:
+                    st.warning(f"Duplicate booking {booking.get('booking_id')} (room {current_room}) already exists for {property_name}")
+                    logger.info(f"Skipped exact duplicate booking {booking.get('booking_id')} room {current_room} for {property_name}")
+                    continue
+                else:
+                    # Same booking ID but different room - this could be a multi-room booking
+                    # Check if this specific room combination already exists
+                    multi_room_check = supabase.table("otabooking").select("*").eq("property", property_name).eq("booking_id", booking.get('booking_id')).eq("room_number", current_room).execute()
+                    
+                    if multi_room_check.data:
+                        st.warning(f"Booking {booking.get('booking_id')} for room {current_room} already exists for {property_name}")
+                        logger.info(f"Skipped duplicate room booking {booking.get('booking_id')} room {current_room} for {property_name}")
+                        continue
+                    else:
+                        st.info(f"Multi-room booking detected: {booking.get('booking_id')} adding room {current_room} for {property_name}")
+                        logger.info(f"Adding additional room {current_room} for booking {booking.get('booking_id')} at {property_name}")
+
+            # Additional guest-based duplicate check (for different booking IDs but same guest)
             is_duplicate, existing_id = check_duplicate_guest(
                 supabase, "otabooking", 
                 booking.get('name', ''), 
                 booking.get('phone', ''), 
                 booking.get('room_number', '')
             )
-            if is_duplicate:
-                st.warning(f"Duplicate booking {booking.get('booking_id')} (exists as {existing_id}) for {property_name}")
-                logger.info(f"Skipped duplicate booking {booking.get('booking_id')} for {property_name}")
+            if is_duplicate and existing_id != booking.get('booking_id'):
+                st.warning(f"Guest duplicate: {booking.get('name')} already has booking {existing_id} for same room at {property_name}")
+                logger.info(f"Skipped guest duplicate: {booking.get('name')} already has booking {existing_id} for {property_name}")
                 continue
 
             # Parse dates from booking_period
@@ -480,11 +506,17 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
             }
         
             supabase.table("otabooking").insert(data).execute()
-            st.success(f"Stored booking {booking.get('booking_id')} for {property_name}")
-            logger.info(f"Stored booking {booking.get('booking_id')} for {property_name}")
+            st.success(f"Stored booking {booking.get('booking_id')} (room {booking.get('room_number', 'N/A')}) for {property_name}")
+            logger.info(f"Stored booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
+            
         except Exception as e:
-            st.error(f"Error storing booking {booking.get('booking_id', 'unknown')} for {property_name}: {str(e)}")
-            logger.error(f"Error storing booking for {property_name}: {str(e)}")
+            # Handle the specific unique constraint violation
+            if 'duplicate key value violates unique constraint' in str(e):
+                st.warning(f"Booking {booking.get('booking_id')} already exists in database for {property_name}")
+                logger.info(f"Skipped existing booking {booking.get('booking_id')} for {property_name}")
+            else:
+                st.error(f"Error storing booking {booking.get('booking_id', 'unknown')} for {property_name}: {str(e)}")
+                logger.error(f"Error storing booking for {property_name}: {str(e)}")
 
 def fetch_for_property(property_name: str, hotel_id: str) -> None:
     """Fetch OTA bookings for a single property."""
