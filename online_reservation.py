@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 import re
 from bs4 import BeautifulSoup
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from selenium.common.exceptions import ElementNotInteractableException
 from typing import List, Dict
 from config import SUPABASE_URL, SUPABASE_KEY, PROPERTIES, OTA_SOURCES
@@ -103,7 +103,7 @@ def extract_booking_data_from_text(text: str) -> Dict[str, str]:
     """Extract booking data from text using regex."""
     return match_patterns_on_page(text)
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry_if_exception_type=(ElementNotInteractableException,))
 def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, hotel_id: str) -> List[Dict[str, str]]:
     """Fetch and display all booking information entries with retries."""
     property_name = get_property_name(hotel_id) or "Unknown"
