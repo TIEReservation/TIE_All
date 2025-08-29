@@ -1,298 +1,140 @@
 import streamlit as st
-import pandas as pd
-import requests
-from datetime import datetime, date
-from supabase import create_client, Client
-from urllib.parse import urlencode
+from supabase import create_client
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from datetime import datetime
+import time
+import re
+from bs4 import BeautifulSoup
+from config import SUPABASE_URL, SUPABASE_KEY
+from utils import safe_int, safe_float, calculate_days, check_duplicate_guest, get_property_name
+from Daily_DMS_All import PROPERTIES, setup_driver, fetch_and_display_bookings, extract_booking_data_from_text, match_patterns_on_page
 
-# Safe imports and initialization
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    st.warning("Requests library not available")
-    REQUESTS_AVAILABLE = False
+# OTA sources to filter (common ones; adjust based on Stayflexi)
+OTA_SOURCES = ['Booking.com', 'Expedia', 'Agoda', 'Goibibo', 'MakeMyTrip', 'Stayflexi OTA']  # Add more if needed
 
-try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    st.warning("Supabase library not available")
-    SUPABASE_AVAILABLE = False
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Initialize Supabase client
-supabase = None
-if SUPABASE_AVAILABLE:
+# Hard-coded chrome profile path (from app.py; make env var in production)
+CHROME_PROFILE_PATH = r"C:\Users\somas\AppData\Local\Google\Chrome\User Data\Default"  # Adjust as needed
+
+def is_ota_booking(booking):
+    """Check if booking is from OTA."""
+    source = booking.get('booking_source', '').lower()
+    return any(ota.lower() in source for ota in OTA_SOURCES)
+
+def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
+    """Login to Stayflexi and navigate to reservations (adapted for OTA focus)."""
+    driver = setup_driver(chrome_profile_path)
+    wait = WebDriverWait(driver, 20)
+    bookings = []
+    
     try:
-        supabase = create_client(
-            st.secrets["supabase"]["url"],
-            st.secrets["supabase"]["key"]
-        )
+        st.write(f"🔹 Opening StayFlexi for {property_name}...")
+        driver.get("https://app.stayflexi.com/auth/login")
+        
+        # Login logic (reuse from Daily_DMS_All.py)
+        try:
+            email_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='text']")))
+            email_field.clear()
+            email_field.send_keys("gayathri.tie@gmail.com")
+            
+            login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
+            login_button.click()
+            
+            password_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
+            password_field.send_keys("Alliswell@2025")
+            
+            login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
+            login_button.click()
+            st.write("✅ Logged in successfully")
+            time.sleep(5)
+        except:
+            st.write("🔹 Already logged in.")
+        
+        # Navigate to dashboard
+        dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
+        dashboard_button.click()
+        time.sleep(3)
+        driver.switch_to.window(driver.window_handles[-1])
+        
+        # Navigate to reservations
+        reservations_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+        reservations_button.click()
+        
+        # Fetch bookings (reuse and filter for OTA)
+        all_bookings = fetch_and_display_bookings(driver, wait, hotel_id)
+        bookings = [b for b in all_bookings if is_ota_booking(b)]
+        st.write(f"📋 Fetched {len(bookings)} OTA bookings for {property_name}")
+        
     except Exception as e:
-        st.error(f"Failed to initialize Supabase: {str(e)}")
+        st.error(f"❌ Error for {property_name}: {str(e)}")
+    finally:
+        driver.quit()
+        return bookings
 
-# Stayflexi API configuration
-try:
-    from config import STAYFLEXI_API_TOKEN, STAYFLEXI_API_BASE_URL, STAYFLEXI_EMAIL
-except ImportError:
-    try:
-        STAYFLEXI_API_TOKEN = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_TOKEN", "")
-        STAYFLEXI_API_BASE_URL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_API_BASE_URL", "")
-        STAYFLEXI_EMAIL = st.secrets.get("stayflexi", {}).get("STAYFLEXI_EMAIL", "")
-    except Exception as e:
-        st.warning(f"Could not load API configuration: {str(e)}")
-
-def generate_booking_id():
-    """Generate a unique booking ID."""
-    try:
-        today = datetime.now().strftime('%Y%m%d')
-        response = supabase.table("reservations").select("booking_id").like("booking_id", f"TIE{today}%").execute()
-        existing_ids = [record["booking_id"] for record in response.data]
-        sequence = 1
-        while f"TIE{today}{sequence:03d}" in existing_ids:
-            sequence += 1
-        return f"TIE{today}{sequence:03d}"
-    except Exception as e:
-        st.error(f"Error generating booking ID: {str(e)}")
-        return None
-
-def fetch_stayflexi_properties():
-    """Fetch list of properties from Stayflexi API."""
-    if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
-        st.error("Cannot fetch properties: Missing requests library or API configuration")
-        return None
-
-    try:
-        headers = {
-            "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
-            "Content-Type": "application/json"
+def store_in_supabase(bookings, property_name):
+    """Store OTA bookings in Supabase 'otabooking' table."""
+    for booking in bookings:
+        is_duplicate, existing_id = check_duplicate_guest(supabase, "otabooking", booking.get('guest_name', ''), booking.get('guest_phone', ''), booking.get('room_number', ''))
+        if is_duplicate:
+            st.warning(f"ℹ️ Duplicate booking {booking.get('booking_id')} (exists as {existing_id})")
+            continue
+        
+        data = {
+            "property": property_name,
+            "report_date": datetime.now().date().isoformat(),
+            "booking_date": booking.get('booking_date'),  # Assume date object or str
+            "booking_id": booking.get('booking_id'),
+            "booking_source": booking.get('booking_source'),
+            "guest_name": booking.get('name'),
+            "guest_phone": booking.get('guest_phone'),
+            "check_in": booking.get('check_in'),
+            "check_out": booking.get('check_out'),
+            "total_with_taxes": safe_float(booking.get('total_with_taxes')),
+            "payment_made": safe_float(booking.get('payment_made')),
+            "adults_children_infant": booking.get('adults_children_infant'),
+            "room_number": booking.get('room_number'),
+            "total_without_taxes": safe_float(booking.get('total_without_taxes')),
+            "total_tax_amount": safe_float(booking.get('total_tax_amount')),
+            "room_type": booking.get('room_type'),
+            "rate_plan": booking.get('rate_plan'),
+            "created_at": datetime.now().isoformat()
         }
-        endpoint = f"{STAYFLEXI_API_BASE_URL}/common/hotel-detail"
-        params = {
-            "isGroupProperty": "true",
-            "emailId": STAYFLEXI_EMAIL
-        }
-        response = requests.get(endpoint, headers=headers, params=params)
-        response.raise_for_status()
-        return [hotel for hotel in response.json() if hotel.get("status") == "ACTIVE"]
-    except requests.RequestException as e:
-        st.error(f"Failed to fetch Stayflexi properties: {str(e)}")
-        return None
+        
+        try:
+            supabase.table("otabooking").insert(data).execute()
+            st.success(f"✅ Stored booking {booking.get('booking_id')} for {property_name}")
+        except Exception as e:
+            st.error(f"❌ Error storing booking: {str(e)}")
 
-def fetch_stayflexi_bookings(start_date: str, end_date: str = None):
-    """
-    Fetch bookings from Stayflexi API for all active properties.
-    Args:
-        start_date: YYYY-MM-DD format
-        end_date: YYYY-MM-DD format (optional, defaults to start_date)
-    Returns:
-        List of bookings with property details
-    """
-    if not REQUESTS_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL:
-        st.error("Cannot fetch bookings: Missing requests library or API configuration")
-        return None
-
-    properties = fetch_stayflexi_properties()
-    if not properties:
-        return None
-
-    all_bookings = []
-    try:
-        headers = {
-            "Authorization": f"Bearer {STAYFLEXI_API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        for property in properties:
-            hotel_id = property.get("hotelId")
-            hotel_name = property.get("hotelName")
-            endpoint = f"{STAYFLEXI_API_BASE_URL}/api/v2/reports/generateDashDataLite/"
-            params = {
-                "date": start_date,
-                "is_today": "true",
-                "hotel_id": hotel_id,
-                "hotelId": hotel_id
-            }
-            if end_date:
-                params["end_date"] = end_date
-
-            response = requests.get(endpoint, headers=headers, params=params)
-            response.raise_for_status()
-            booking_data = response.json()
-            # Combine all booking statuses (CHECKINS, NEW_BOOKINGS, CANCELLED, etc.)
-            for status in ["CHECKINS", "NEW_BOOKINGS", "CANCELLED", "ON_HOLD", "NO_SHOW"]:
-                bookings = booking_data.get(status, [])
-                for booking in bookings:
-                    booking["hotel_id"] = hotel_id
-                    booking["hotel_name"] = hotel_name
-                    all_bookings.append(booking)
-        return all_bookings
-    except requests.RequestException as e:
-        st.error(f"Failed to fetch Stayflexi bookings: {str(e)}")
-        return None
-
-def map_stayflexi_to_supabase(booking):
-    """
-    Map Stayflexi booking data to Supabase schema.
-    """
-    try:
-        return {
-            "booking_id": booking.get("reservation_id", generate_booking_id()),
-            "property_name": booking.get("hotel_name", ""),
-            "booking_date": booking.get("booking_made", datetime.now().strftime("%Y-%m-%d")),
-            "booking_source": booking.get("booking_source", "Stayflexi"),
-            "guest_name": booking.get("user_name", ""),
-            "guest_phone": booking.get("user_phone", ""),
-            "check_in": booking.get("check_in", ""),
-            "check_out": booking.get("check_out", ""),
-            "total_amount": float(booking.get("booking_amount", 0.0)),
-            "advance": float(booking.get("balance_due", 0.0)),
-            "no_of_adults": int(booking.get("adults", 0)),
-            "no_of_children": int(booking.get("children", 0)),
-            "no_of_infants": 0,  # Stayflexi data doesn't provide infants
-            "total_pax": int(booking.get("adults", 0)) + int(booking.get("children", 0)),
-            "room_no": booking.get("room_ids", ""),
-            "amt_without_tax": float(booking.get("booking_amount", 0.0)) - float(booking.get("fee_amount", 0.0)),
-            "tax": float(booking.get("fee_amount", 0.0)),
-            "room_type": booking.get("room_type", ""),
-            "breakfast": booking.get("rate_plan_name", "EP"),
-            "status": booking.get("reservation_status", "PENDING").upper(),
-            "submitted_by": "Stayflexi API",
-            "remarks": "",
-            "mob": "Online"
-        }
-    except Exception as e:
-        st.error(f"Error mapping booking to Supabase schema: {str(e)}")
-        return None
-
-def save_to_supabase(booking):
-    """Save a booking to Supabase reservations table."""
-    try:
-        # Check for duplicate booking_id
-        response = supabase.table("reservations").select("booking_id").eq("booking_id", booking["booking_id"]).execute()
-        if response.data:
-            return False  # Booking already exists
-        response = supabase.table("reservations").insert(booking).execute()
-        if response.data:
-            return True
-        else:
-            st.error("Failed to save booking to Supabase")
-            return False
-    except Exception as e:
-        st.error(f"Error saving to Supabase: {str(e)}")
-        return False
+def fetch_for_property(property_name, hotel_id):
+    """Fetch OTA bookings for a single property."""
+    bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
+    store_in_supabase(bookings, property_name)
 
 def show_online_reservations():
-    """
-    Display and sync online reservations from Stayflexi.
-    """
-    st.header("📡 Online Reservations")
+    """Streamlit UI for online reservations."""
+    st.title("📡 Online Reservations (OTA Bookings)")
+    st.markdown("Sync bookings from Stayflexi for each property.")
 
-    # Show system status
-    with st.expander("System Status", expanded=False):
-        st.write(f"Requests Available: {'✅' if REQUESTS_AVAILABLE else '❌'}")
-        st.write(f"Supabase Available: {'✅' if SUPABASE_AVAILABLE else '❌'}")
-        st.write(f"Supabase Connected: {'✅' if supabase else '❌'}")
-        st.write(f"API Token Configured: {'✅' if STAYFLEXI_API_TOKEN else '❌'}")
-        st.write(f"API URL Configured: {'✅' if STAYFLEXI_API_BASE_URL else '❌'}")
-        st.write(f"API Email Configured: {'✅' if STAYFLEXI_EMAIL else '❌'}")
+    # Sync All button
+    if st.button("🔄 Sync All Properties", key="sync_all"):
+        with st.spinner("Syncing all properties..."):
+            progress_bar = st.progress(0)
+            total = len(PROPERTIES)
+            for i, (name, id) in enumerate(PROPERTIES.items()):
+                fetch_for_property(name, id)
+                progress_bar.progress((i + 1) / total)
+            st.success("✅ All properties synced!")
 
-    # Input for date selection and sync
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        sync_date = st.date_input("Select Date to Sync/View", value=date.today(), key="online_reservations_date")
-    with col2:
-        sync_button = st.button("Sync Stayflexi Bookings")
-
-    if sync_date:
-        formatted_date = sync_date.strftime("%Y-%m-%d")
-        st.info(f"Selected date: {formatted_date}")
-
-        # Fetch and sync bookings if button clicked
-        if sync_button:
-            if not REQUESTS_AVAILABLE or not SUPABASE_AVAILABLE or not STAYFLEXI_API_TOKEN or not STAYFLEXI_API_BASE_URL or not STAYFLEXI_EMAIL:
-                st.error("Cannot sync bookings: Missing required libraries or API configuration")
-            else:
-                bookings = fetch_stayflexi_bookings(formatted_date)
-                if bookings:
-                    mapped_bookings = [map_stayflexi_to_supabase(booking) for booking in bookings]
-                    mapped_bookings = [b for b in mapped_bookings if b]  # Filter out None
-                    success_count = 0
-                    for booking in mapped_bookings:
-                        if save_to_supabase(booking):
-                            success_count += 1
-                    if success_count > 0:
-                        st.success(f"Successfully synced {success_count} bookings to Supabase")
-                    else:
-                        st.warning("No new bookings synced")
-                else:
-                    st.warning("No bookings fetched from Stayflexi")
-
-        # Load and display bookings from Supabase
-        try:
-            response = supabase.table("reservations").select("*").eq("mob", "Online").eq("check_in", formatted_date).execute()
-            if response.data:
-                df = pd.DataFrame([
-                    {
-                        "Booking ID": record["booking_id"],
-                        "Property Name": record["property_name"],
-                        "Guest Name": record["guest_name"],
-                        "Guest Phone": record["guest_phone"],
-                        "Check In": pd.to_datetime(record["check_in"]) if record["check_in"] else None,
-                        "Check Out": pd.to_datetime(record["check_out"]) if record["check_out"] else None,
-                        "Total Amount": record["total_amount"],
-                        "Room Type": record["room_type"],
-                        "Status": record["status"],
-                        "Booking Source": record["booking_source"]
-                    }
-                    for record in response.data
-                ])
-            else:
-                df = pd.DataFrame()
-        except Exception as e:
-            st.error(f"Error loading reservations: {str(e)}")
-            df = pd.DataFrame()
-
-        # Display bookings by property
-        if not df.empty:
-            properties = df["Property Name"].unique()
-            tabs = st.tabs(properties)
-            for i, property_name in enumerate(properties):
-                with tabs[i]:
-                    property_df = df[df["Property Name"] == property_name]
-                    st.subheader(f"{property_name}")
-                    status_tabs = st.tabs(["Check-ins", "New Bookings", "Cancelled", "On Hold", "No Show"])
-                    with status_tabs[0]:
-                        checkin_df = property_df[property_df["Status"] == "CONFIRMED"]
-                        if not checkin_df.empty:
-                            st.dataframe(checkin_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                        else:
-                            st.write("No check-ins found.")
-                    with status_tabs[1]:
-                        new_df = property_df[property_df["Status"] == "NEW_BOOKINGS"]
-                        if not new_df.empty:
-                            st.dataframe(new_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                        else:
-                            st.write("No new bookings found.")
-                    with status_tabs[2]:
-                        cancelled_df = property_df[property_df["Status"] == "CANCELLED"]
-                        if not cancelled_df.empty:
-                            st.dataframe(cancelled_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                        else:
-                            st.write("No cancelled bookings found.")
-                    with status_tabs[3]:
-                        on_hold_df = property_df[property_df["Status"] == "ON_HOLD"]
-                        if not on_hold_df.empty:
-                            st.dataframe(on_hold_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                        else:
-                            st.write("No on-hold bookings found.")
-                    with status_tabs[4]:
-                        no_show_df = property_df[property_df["Status"] == "NO_SHOW"]
-                        if not no_show_df.empty:
-                            st.dataframe(no_show_df[["Booking ID", "Guest Name", "Check In", "Check Out", "Room Type", "Total Amount", "Booking Source"]], use_container_width=True)
-                        else:
-                            st.write("No no-show bookings found.")
-        else:
-            st.info("No online bookings found for the selected date.")
-
-if __name__ == "__main__":
-    show_online_reservations()
+    # Property list with individual sync buttons
+    for name, id in PROPERTIES.items():
+        col1, col2 = st.columns([4, 1])
+        col1.write(f"🏨 {name} (ID: {id})")
+        if col2.button(f"🔄 Sync {name}", key=f"sync_{name}"):
+            with st.spinner(f"Syncing {name}..."):
+                fetch_for_property(name, id)
