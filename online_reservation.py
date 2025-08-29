@@ -147,25 +147,162 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
             except Exception as e:
                 logger.warning(f"Could not fetch booking source: {str(e)}")
 
-            # Extract rate plan
+            # Improved Rate Plan extraction with multiple strategies
             try:
-                rate_plan_elem = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//*[@id='panel1a-content']/div/div/div[1]/div/div[8]/div/div[2]")))
-                booking['rate_plan'] = rate_plan_elem.text.strip()
-                logger.info(f"Rate Plan: {booking['rate_plan']}")
+                # Strategy 1: Look for text content that contains rate plan information
+                rate_plan_found = False
+                
+                # Try to find elements containing "Plan" or "Rate" text
+                potential_rate_elements = driver.find_elements(By.XPATH, 
+                    "//div[contains(text(), 'Plan') or contains(text(), 'Rate') or contains(text(), 'Standard') or contains(text(), 'Flexible')]")
+                
+                for elem in potential_rate_elements:
+                    text = elem.text.strip()
+                    # Skip elements that look like labels or contain unwanted text
+                    if text and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes', '(0)']):
+                        # Check if this looks like a rate plan (contains "Plan" or is a simple text)
+                        if 'plan' in text.lower() or re.match(r'^[A-Za-z\s]+$', text):
+                            booking['rate_plan'] = text
+                            rate_plan_found = True
+                            logger.info(f"Rate Plan found via content search: {booking['rate_plan']}")
+                            break
+                
+                # Strategy 2: If not found, try the original XPath as fallback
+                if not rate_plan_found:
+                    try:
+                        rate_plan_elem = driver.find_element(By.XPATH, "//*[@id='panel1a-content']/div/div/div[1]/div/div[8]/div/div[2]")
+                        text = rate_plan_elem.text.strip()
+                        if text and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes', '(0)']):
+                            booking['rate_plan'] = text
+                            rate_plan_found = True
+                            logger.info(f"Rate Plan found via original XPath: {booking['rate_plan']}")
+                    except Exception:
+                        pass
+                
+                # Strategy 3: Use JavaScript to search through all text nodes
+                if not rate_plan_found:
+                    try:
+                        js_rate_plan = driver.execute_script("""
+                            function findRatePlan() {
+                                const walker = document.createTreeWalker(
+                                    document.getElementById('panel1a-content') || document.body,
+                                    NodeFilter.SHOW_TEXT,
+                                    null,
+                                    false
+                                );
+                                
+                                let node;
+                                const candidates = [];
+                                
+                                while (node = walker.nextNode()) {
+                                    const text = node.textContent.trim();
+                                    if (text && 
+                                        (text.includes('Plan') || text.includes('Standard') || text.includes('Flexible')) &&
+                                        !text.includes('Add') && 
+                                        !text.includes('View') && 
+                                        !text.includes('booking') &&
+                                        !text.includes('(0)') &&
+                                        text.length < 50) {
+                                        candidates.push(text);
+                                    }
+                                }
+                                
+                                return candidates.length > 0 ? candidates[0] : null;
+                            }
+                            return findRatePlan();
+                        """)
+                        
+                        if js_rate_plan:
+                            booking['rate_plan'] = js_rate_plan
+                            rate_plan_found = True
+                            logger.info(f"Rate Plan found via JavaScript: {booking['rate_plan']}")
+                    except Exception as js_e:
+                        logger.warning(f"JavaScript rate plan search failed: {str(js_e)}")
+                
+                if not rate_plan_found:
+                    booking['rate_plan'] = 'N/A'
+                    logger.warning("Could not find Rate Plan using any method")
+                    
             except Exception as e:
                 booking['rate_plan'] = 'N/A'
-                logger.warning(f"Could not fetch Rate Plan: {str(e)}")
+                logger.warning(f"Error in rate plan extraction: {str(e)}")
 
-            # Extract adults/children/infant info
+            # Improved Adults/Children/Infant extraction with multiple strategies
             try:
-                adults_children_infant_elem = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//*[@id='panel1a-content']/div/div/div[2]/div/div[8]/div/div[2]")))
-                booking['adults_children_infant'] = adults_children_infant_elem.text.strip()
-                logger.info(f"Adults/Children/Infant: {booking['adults_children_infant']}")
+                adults_children_found = False
+                
+                # Strategy 1: Look for numeric patterns like "7/0/0" or "2 Adults, 0 Children"
+                numeric_pattern_elements = driver.find_elements(By.XPATH, 
+                    "//*[contains(text(), '/') and (contains(text(), '0') or contains(text(), '1') or contains(text(), '2') or contains(text(), '3') or contains(text(), '4') or contains(text(), '5') or contains(text(), '6') or contains(text(), '7') or contains(text(), '8') or contains(text(), '9'))]")
+                
+                for elem in numeric_pattern_elements:
+                    text = elem.text.strip()
+                    # Look for patterns like "7/0/0" or similar
+                    if re.search(r'\d+/\d+/\d+', text) and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes']):
+                        booking['adults_children_infant'] = text
+                        adults_children_found = True
+                        logger.info(f"Adults/Children/Infant found via pattern search: {booking['adults_children_infant']}")
+                        break
+                
+                # Strategy 2: If not found, try the original XPath as fallback
+                if not adults_children_found:
+                    try:
+                        adults_children_elem = driver.find_element(By.XPATH, "//*[@id='panel1a-content']/div/div/div[2]/div/div[8]/div/div[2]")
+                        text = adults_children_elem.text.strip()
+                        if text and not any(skip_word in text.lower() for skip_word in ['add', 'view', 'booking', 'notes', '(0)']):
+                            booking['adults_children_infant'] = text
+                            adults_children_found = True
+                            logger.info(f"Adults/Children/Infant found via original XPath: {booking['adults_children_infant']}")
+                    except Exception:
+                        pass
+                
+                # Strategy 3: Use JavaScript to search for numeric patterns
+                if not adults_children_found:
+                    try:
+                        js_adults_children = driver.execute_script("""
+                            function findAdultsChildren() {
+                                const walker = document.createTreeWalker(
+                                    document.getElementById('panel1a-content') || document.body,
+                                    NodeFilter.SHOW_TEXT,
+                                    null,
+                                    false
+                                );
+                                
+                                let node;
+                                const candidates = [];
+                                
+                                while (node = walker.nextNode()) {
+                                    const text = node.textContent.trim();
+                                    if (text && 
+                                        /\d+\/\d+\/\d+/.test(text) &&
+                                        !text.includes('Add') && 
+                                        !text.includes('View') && 
+                                        !text.includes('booking') &&
+                                        !text.includes('(0)') &&
+                                        text.length < 20) {
+                                        candidates.push(text);
+                                    }
+                                }
+                                
+                                return candidates.length > 0 ? candidates[0] : null;
+                            }
+                            return findAdultsChildren();
+                        """)
+                        
+                        if js_adults_children:
+                            booking['adults_children_infant'] = js_adults_children
+                            adults_children_found = True
+                            logger.info(f"Adults/Children/Infant found via JavaScript: {booking['adults_children_infant']}")
+                    except Exception as js_e:
+                        logger.warning(f"JavaScript adults/children search failed: {str(js_e)}")
+                
+                if not adults_children_found:
+                    booking['adults_children_infant'] = 'N/A'
+                    logger.warning("Could not find Adults/Children/Infant using any method")
+                    
             except Exception as e:
                 booking['adults_children_infant'] = 'N/A'
-                logger.warning(f"Could not fetch Adults/Children/Infant: {str(e)}")
+                logger.warning(f"Error in adults/children extraction: {str(e)}")
 
             # Extract financial details
             try:
