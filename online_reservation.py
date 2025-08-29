@@ -14,7 +14,8 @@ from datetime import datetime
 import time
 import re
 from bs4 import BeautifulSoup
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from selenium.common.exceptions import ElementNotInteractableException
 from config import SUPABASE_URL, SUPABASE_KEY
 from utils import safe_int, safe_float, check_duplicate_guest, get_property_name
 
@@ -116,7 +117,7 @@ def extract_booking_data_from_text(text):
     booking_data = match_patterns_on_page(text)
     return booking_data
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry_if_exception_type=(ElementNotInteractableException,))
 def fetch_and_display_bookings(driver, wait, hotel_id):
     """Fetch and display all booking information entries with retries."""
     st.write("🔹 Fetching all booking information entries...")
@@ -125,25 +126,40 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
     time.sleep(8)
 
     try:
+        # Try primary selector for booking cards
         booking_cards = wait.until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical.MuiCollapse-hidden")))
-        st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-hidden")
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
+        st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-root")
     except Exception as e:
-        logger.warning(f"Could not find booking entries with MuiCollapse-hidden: {str(e)}")
-        st.write(f"⚠️ Could not find booking entries with MuiCollapse-hidden: {str(e)}")
+        logger.warning(f"Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
+        st.write(f"⚠️ Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
         try:
+            # Fallback selector
             booking_cards = wait.until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-content.Mui-expanded.MuiAccordionSummary-contentGutters")))
-            st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-expanded")
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical")))
+            st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-root")
         except Exception as e:
-            logger.warning(f"Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
-            st.write(f"⚠️ Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
+            logger.warning(f"Could not find booking entries with MuiCollapse-root: {str(e)}")
+            st.write(f"⚠️ Could not find booking entries with MuiCollapse-root: {str(e)}")
             booking_cards = []
+
+    # Debug: Log HTML of booking cards
+    if booking_cards:
+        logger.info(f"Found {len(booking_cards)} booking cards. First card HTML: {booking_cards[0].get_attribute('outerHTML')}")
+        # Save screenshot for debugging
+        try:
+            driver.save_screenshot(f"/tmp/booking_page_{hotel_id}.png")
+            logger.info(f"Screenshot saved to /tmp/booking_page_{hotel_id}.png")
+        except Exception as e:
+            logger.warning(f"Failed to save screenshot: {str(e)}")
 
     for i, card in enumerate(booking_cards):
         st.write(f"\n🔖 Booking #{i+1}:")
         try:
-            card.click()
+            # Ensure element is visible and interactable
+            wait.until(EC.element_to_be_clickable((By.ID, card.get_attribute('id')) if card.get_attribute('id') else (By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
+            # Try JavaScript click as fallback
+            driver.execute_script("arguments[0].click();", card)
             time.sleep(2)
             page_source = driver.page_source
             soup = BeautifulSoup(page_source, 'html.parser')
