@@ -62,9 +62,13 @@ def setup_driver(chrome_profile_path):
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
         chrome_options.add_argument("--window-size=1920,1080")  # Set window size
-        # Install ChromeDriver compatible with installed Chrome
-        chromedriver_autoinstaller.install()
-        driver = webdriver.Chrome(options=chrome_options)
+        # Specify Chromium binary location
+        chrome_options.binary_location = "/usr/bin/chromium"
+        # Install ChromeDriver compatible with installed Chromium
+        chromedriver_path = chromedriver_autoinstaller.install()
+        logger.info(f"ChromeDriver installed at: {chromedriver_path}")
+        service = ChromeService(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         logger.info("Chrome WebDriver initialized successfully")
         return driver
     except Exception as e:
