@@ -123,7 +123,7 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
     st.write("🔹 Fetching all booking information entries...")
     bookings = []
 
-    time.sleep(8)
+    time.sleep(10)  # Increased wait for page load
 
     try:
         # Try primary selector for booking cards
@@ -141,7 +141,27 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
         except Exception as e:
             logger.warning(f"Could not find booking entries with MuiCollapse-root: {str(e)}")
             st.write(f"⚠️ Could not find booking entries with MuiCollapse-root: {str(e)}")
-            booking_cards = []
+            # Fallback: Scrape page source directly
+            try:
+                st.write("🔹 Attempting to scrape booking data from page source...")
+                page_source = driver.page_source
+                soup = BeautifulSoup(page_source, 'html.parser')
+                booking_sections = soup.select("div.MuiCollapse-root.MuiCollapse-vertical, div.MuiAccordionDetails-root")
+                st.write(f"📋 Found {len(booking_sections)} booking sections in page source")
+                for i, section in enumerate(booking_sections):
+                    st.write(f"\n🔖 Booking #{i+1}:")
+                    booking_text = section.get_text(separator='\n', strip=True)
+                    booking_data = extract_booking_data_from_text(booking_text)
+                    if booking_data.get('booking_id'):
+                        bookings.append(booking_data)
+                        st.write(f"📋 Extracted booking: {booking_data.get('booking_id')}")
+                    else:
+                        st.write("⚠️ No booking ID found, skipping...")
+                return bookings
+            except Exception as e:
+                logger.error(f"Error scraping page source: {str(e)}")
+                st.error(f"❌ Error scraping page source: {str(e)}")
+                return bookings
 
     # Debug: Log HTML of booking cards
     if booking_cards:
@@ -173,6 +193,21 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
         except Exception as e:
             logger.error(f"Error extracting booking #{i+1}: {str(e)}")
             st.write(f"⚠️ Error extracting booking #{i+1}: {str(e)}")
+            # Fallback to scraping card content directly
+            try:
+                st.write(f"🔹 Attempting to scrape booking #{i+1} directly...")
+                card_source = card.get_attribute('outerHTML')
+                soup = BeautifulSoup(card_source, 'html.parser')
+                booking_text = soup.get_text(separator='\n', strip=True)
+                booking_data = extract_booking_data_from_text(booking_text)
+                if booking_data.get('booking_id'):
+                    bookings.append(booking_data)
+                    st.write(f"📋 Extracted booking: {booking_data.get('booking_id')}")
+                else:
+                    st.write("⚠️ No booking ID found in card, skipping...")
+            except Exception as e:
+                logger.error(f"Error scraping booking #{i+1} directly: {str(e)}")
+                st.write(f"⚠️ Error scraping booking #{i+1} directly: {str(e)}")
     
     return bookings
 
