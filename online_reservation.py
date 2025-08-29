@@ -202,9 +202,13 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
     property_name = get_property_name(hotel_id) or "Unknown"
     st.write(f"Fetching all booking information entries for {property_name}...")
     bookings = []
+    current_url = driver.current_url
 
     time.sleep(8)
 
+    # Store all booking texts first, then process them
+    booking_texts = []
+    
     try:
         # Try to find booking cards using the same selectors as Daily_DMS_All.py
         booking_cards = wait.until(
@@ -220,8 +224,9 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
             logger.warning(f"Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
             booking_cards = []
 
+    # First pass: Extract all booking texts without navigating away
     for i, card in enumerate(booking_cards):
-        st.write(f"Booking #{i+1} for {property_name}:")
+        st.write(f"Extracting text from booking #{i+1} for {property_name}:")
         try:
             # Check if element is collapsed and expand it
             if "MuiCollapse-hidden" in card.get_attribute("class"):
@@ -236,13 +241,30 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
             raw_text = summary_content.text.strip()
 
             logger.info(f"Raw text: {raw_text[:200]}{'...' if len(raw_text) > 200 else ''}")
+            booking_texts.append(raw_text)
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from booking #{i+1}: {str(e)}")
+            st.error(f"Error extracting text from booking #{i+1}: {str(e)}")
 
+    # Second pass: Process each booking text and fetch folio details
+    for i, raw_text in enumerate(booking_texts):
+        st.write(f"Processing booking #{i+1} for {property_name}:")
+        try:
             # Extract booking data using the improved function
             booking_data = extract_booking_data_from_text(raw_text, hotel_id)
             
             if booking_data.get('booking_id'):
-                # Fetch additional details from folio page
+                # Fetch additional details from folio page (this navigates away)
                 fetch_folio_details(driver, wait, booking_data, hotel_id)
+                
+                # Navigate back to reservations page for next booking
+                if i < len(booking_texts) - 1:  # Don't navigate back on last booking
+                    driver.get(current_url)
+                    time.sleep(3)
+                    # Wait for page to reload
+                    wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+                
                 bookings.append(booking_data)
                 st.write(f"Extracted booking: {booking_data.get('booking_id')} for {property_name}")
                 logger.info(f"Successfully extracted booking: {booking_data.get('booking_id')}")
@@ -253,6 +275,13 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
         except Exception as e:
             logger.error(f"Error processing booking #{i+1}: {str(e)}")
             st.error(f"Error processing booking #{i+1}: {str(e)}")
+            # Try to navigate back to reservations page if there was an error
+            try:
+                driver.get(current_url)
+                time.sleep(3)
+                wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Reservations')]")))
+            except Exception as nav_error:
+                logger.warning(f"Could not navigate back to reservations: {str(nav_error)}")
 
     # If no booking cards found, try JavaScript approach from Daily_DMS_All.py
     if not booking_cards:
