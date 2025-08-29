@@ -12,6 +12,7 @@ import logging
 import shutil
 from datetime import datetime
 import re
+import time
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from selenium.common.exceptions import ElementNotInteractableException
