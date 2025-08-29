@@ -1,8 +1,12 @@
 import streamlit as st
 import os
 from supabase import create_client, Client
-from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
-from online_reservation import show_online_reservations
+try:
+    from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
+    from online_reservation import show_online_reservations
+except ImportError as e:
+    st.error(f"❌ Import error: {e}. Please ensure directreservation.py and online_reservation.py are in the repository.")
+    st.stop()
 
 # Page config
 st.set_page_config(
@@ -14,10 +18,10 @@ st.set_page_config(
 # Display logo in top-left corner
 st.image("https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_Logo_Icon.png", width=100)
 
-# Initialize Supabase client with environment variables
-os.environ["SUPABASE_URL"] = "https://oxbrezracnmazucnnqox.supabase.co"
-os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo"
-supabase: Client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+# Initialize Supabase client with environment variables or secrets
+SUPABASE_URL = st.secrets.get("supabase", {}).get("url") or os.environ.get("SUPABASE_URL", "https://oxbrezracnmazucnnqox.supabase.co")
+SUPABASE_KEY = st.secrets.get("supabase", {}).get("key") or os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def check_authentication():
     if 'authenticated' not in st.session_state:
@@ -36,11 +40,14 @@ def check_authentication():
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
                 # Fetch reservations using load_reservations_from_supabase
-                st.session_state.reservations = load_reservations_from_supabase()
-                if st.session_state.reservations:
-                    st.success("✅ Management login successful! Reservations fetched.")
-                else:
-                    st.warning("✅ Management login successful! No reservations found.")
+                try:
+                    st.session_state.reservations = load_reservations_from_supabase()
+                    if st.session_state.reservations:
+                        st.success("✅ Management login successful! Reservations fetched.")
+                    else:
+                        st.warning("✅ Management login successful! No reservations found.")
+                except Exception as e:
+                    st.error(f"❌ Error fetching reservations: {e}")
                 st.rerun()
             elif role == "ReservationTeam" and password == "TIE123":
                 st.session_state.authenticated = True
@@ -49,11 +56,14 @@ def check_authentication():
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
                 # Fetch reservations using load_reservations_from_supabase
-                st.session_state.reservations = load_reservations_from_supabase()
-                if st.session_state.reservations:
-                    st.success("✅ Agent login successful! Reservations fetched.")
-                else:
-                    st.warning("✅ Agent login successful! No reservations found.")
+                try:
+                    st.session_state.reservations = load_reservations_from_supabase()
+                    if st.session_state.reservations:
+                        st.success("✅ Agent login successful! Reservations fetched.")
+                    else:
+                        st.warning("✅ Agent login successful! No reservations found.")
+                except Exception as e:
+                    st.error(f"❌ Error fetching reservations: {e}")
                 st.rerun()
             else:
                 st.error("❌ Invalid password. Please try again.")
@@ -90,4 +100,4 @@ def main():
         st.rerun()
 
 if __name__ == "__main__":
-    main() 
+    main()
