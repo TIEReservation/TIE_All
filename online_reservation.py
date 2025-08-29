@@ -144,13 +144,13 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
         try:
             email_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='text']")))
             email_field.clear()
-            email_field.send_keys("gayathri.tie@gmail.com")
+            email_field.send_keys(st.secrets["stayflexi"]["email"])
             
             login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
             login_button.click()
             
             password_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
-            password_field.send_keys("Alliswell@2025")
+            password_field.send_keys(st.secrets["stayflexi"]["password"])
             
             login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
             login_button.click()
