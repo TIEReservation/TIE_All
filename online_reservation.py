@@ -64,7 +64,7 @@ def setup_driver(chrome_profile_path: str) -> webdriver.Chrome:
         return driver
     except Exception as e:
         logger.error(f"Failed to set up Chrome WebDriver: {str(e)}")
-        st.error(f"❌ Failed to initialize browser: {str(e)}")
+        st.error(f"Failed to initialize browser: {str(e)}")
         raise
 
 def match_patterns_on_page(page_source: str) -> Dict[str, str]:
@@ -94,16 +94,21 @@ def match_patterns_on_page(page_source: str) -> Dict[str, str]:
         'booking_date': r'(Booking|Reservation)\s*Date.*?[:\s]+(\d{4}-\d{2}-\d{2})'
     }
     extracted_data = {}
+    matched = []
     unmatched = []
     for key, pattern in patterns.items():
         match = re.search(pattern, page_source, re.IGNORECASE | re.DOTALL)
         if match and len(match.groups()) > 1:
             extracted_data[key] = match.group(2).strip()
+            matched.append(key)
         elif match:
             extracted_data[key] = match.group(1).strip()
+            matched.append(key)
         else:
             extracted_data[key] = ''
             unmatched.append(key)
+    if matched:
+        logger.info(f"Matched fields: {matched}")
     if unmatched:
         logger.warning(f"Unmatched fields: {unmatched}")
     return extracted_data
@@ -131,59 +136,67 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
     Returns:
         List[Dict[str, str]]: List of extracted booking data.
     """
-    st.write("🔹 Fetching all booking information entries...")
+    property_name = get_property_name(hotel_id) or "Unknown"
+    st.write(f"🔹 Fetching bookings for {property_name} (ID: {hotel_id})...")
     bookings = []
     attempt = 0
 
     try:
         booking_cards = wait.until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
-        st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-root")
+        st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-root for {property_name}")
     except Exception as e:
-        logger.warning(f"Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
-        st.write(f"⚠️ Could not find booking entries with MuiAccordionSummary-root: {str(e)}")
+        logger.warning(f"Could not find booking entries with MuiAccordionSummary-root for {property_name} (ID: {hotel_id}): {str(e)}")
+        st.error(f"Could not find booking entries with MuiAccordionSummary-root for {property_name} (ID: {hotel_id}): {str(e)}")
         try:
             booking_cards = wait.until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical")))
-            st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-root")
+            st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-root for {property_name}")
         except Exception as e:
-            logger.warning(f"Could not find booking entries with MuiCollapse-root: {str(e)}")
-            st.write(f"⚠️ Could not find booking entries with MuiCollapse-root: {str(e)}")
+            logger.warning(f"Could not find booking entries with MuiCollapse-root for {property_name} (ID: {hotel_id}): {str(e)}")
+            st.error(f"Could not find booking entries with MuiCollapse-root for {property_name} (ID: {hotel_id}): {str(e)}")
             try:
-                st.write("🔹 Attempting to scrape booking data from page source...")
-                page_source = driver.page_source
-                soup = BeautifulSoup(page_source, 'html.parser')
-                booking_sections = soup.select("div.MuiCollapse-root.MuiCollapse-vertical, div.MuiAccordionDetails-root")
-                st.write(f"📋 Found {len(booking_sections)} booking sections in page source")
-                for i, section in enumerate(booking_sections):
-                    st.write(f"\n🔖 Booking #{i+1}:")
-                    booking_text = section.get_text(separator='\n', strip=True)
-                    booking_data = extract_booking_data_from_text(booking_text)
-                    if booking_data.get('booking_id'):
-                        bookings.append(booking_data)
-                        st.write(f"📋 Extracted booking: {booking_data.get('booking_id')}")
-                    else:
-                        st.write("⚠️ No booking ID found, skipping...")
-                return bookings
+                booking_cards = wait.until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "button.MuiButtonBase-root")))
+                st.write(f"📋 Found {len(booking_cards)} booking entries using MuiButtonBase-root for {property_name}")
             except Exception as e:
-                logger.error(f"Error scraping page source: {str(e)}")
-                st.error(f"❌ Error scraping page source: {str(e)}")
-                return bookings
+                logger.warning(f"Could not find booking entries with MuiButtonBase-root for {property_name} (ID: {hotel_id}): {str(e)}")
+                st.error(f"Could not find booking entries with MuiButtonBase-root for {property_name} (ID: {hotel_id}): {str(e)}")
+                try:
+                    st.write(f"🔹 Attempting to scrape booking data from page source for {property_name}...")
+                    page_source = driver.page_source
+                    soup = BeautifulSoup(page_source, 'html.parser')
+                    booking_sections = soup.select("div.MuiCollapse-root.MuiCollapse-vertical, div.MuiAccordionDetails-root")
+                    st.write(f"📋 Found {len(booking_sections)} booking sections in page source for {property_name}")
+                    for i, section in enumerate(booking_sections):
+                        st.write(f"\n🔖 Booking #{i+1} for {property_name}:")
+                        booking_text = section.get_text(separator='\n', strip=True)
+                        booking_data = extract_booking_data_from_text(booking_text)
+                        if booking_data.get('booking_id'):
+                            bookings.append(booking_data)
+                            st.write(f"📋 Extracted booking: {booking_data.get('booking_id')} for {property_name}")
+                        else:
+                            st.write(f"⚠️ No booking ID found for booking #{i+1} in {property_name}, skipping...")
+                    return bookings
+                except Exception as e:
+                    logger.error(f"Error scraping page source for {property_name} (ID: {hotel_id}): {str(e)}")
+                    st.error(f"Error scraping page source for {property_name} (ID: {hotel_id}): {str(e)}")
+                    return bookings
 
     if booking_cards:
-        logger.info(f"Found {len(booking_cards)} booking cards. First card HTML: {booking_cards[0].get_attribute('outerHTML')}")
+        logger.info(f"Found {len(booking_cards)} booking cards for {property_name}. First card HTML: {booking_cards[0].get_attribute('outerHTML')}")
         if not os.getenv("STREAMLIT_CLOUD"):
             try:
                 driver.save_screenshot(f"/tmp/booking_page_{hotel_id}.png")
-                logger.info(f"Screenshot saved to /tmp/booking_page_{hotel_id}.png")
+                logger.info(f"Screenshot saved to /tmp/booking_page_{hotel_id}.png for {property_name}")
             except Exception as e:
-                logger.warning(f"Failed to save screenshot: {str(e)}")
+                logger.warning(f"Failed to save screenshot for {property_name} (ID: {hotel_id}): {str(e)}")
 
     for i, card in enumerate(booking_cards):
-        st.write(f"\n🔖 Booking #{i+1}:")
+        st.write(f"\n🔖 Booking #{i+1} for {property_name}:")
         try:
             attempt += 1
-            logger.info(f"Attempt {attempt} to click booking #{i+1}")
+            logger.info(f"Attempt {attempt} to click booking #{i+1} for {property_name}")
             wait.until(EC.element_to_be_clickable((By.ID, card.get_attribute('id')) if card.get_attribute('id') else (By.CSS_SELECTOR, "div.MuiAccordionSummary-root")))
             driver.execute_script("arguments[0].click();", card)
             time.sleep(2)
@@ -193,26 +206,26 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
             booking_data = extract_booking_data_from_text(booking_text)
             if booking_data.get('booking_id'):
                 bookings.append(booking_data)
-                st.write(f"📋 Extracted booking: {booking_data.get('booking_id')}")
+                st.write(f"📋 Extracted booking: {booking_data.get('booking_id')} for {property_name}")
             else:
-                st.write("⚠️ No booking ID found, skipping...")
+                st.write(f"⚠️ No booking ID found for booking #{i+1} in {property_name}, skipping...")
         except Exception as e:
-            logger.error(f"Error extracting booking #{i+1} (attempt {attempt}): {str(e)}")
-            st.write(f"⚠️ Error extracting booking #{i+1}: {str(e)}")
+            logger.error(f"Error extracting booking #{i+1} (attempt {attempt}) for {property_name} (ID: {hotel_id}): {str(e)}")
+            st.error(f"Error extracting booking #{i+1} for {property_name} (ID: {hotel_id}): {str(e)}")
             try:
-                st.write(f"🔹 Attempting to scrape booking #{i+1} directly...")
+                st.write(f"🔹 Attempting to scrape booking #{i+1} directly for {property_name}...")
                 card_source = card.get_attribute('outerHTML')
                 soup = BeautifulSoup(card_source, 'html.parser')
                 booking_text = soup.get_text(separator='\n', strip=True)
                 booking_data = extract_booking_data_from_text(booking_text)
                 if booking_data.get('booking_id'):
                     bookings.append(booking_data)
-                    st.write(f"📋 Extracted booking: {booking_data.get('booking_id')}")
+                    st.write(f"📋 Extracted booking: {booking_data.get('booking_id')} for {property_name}")
                 else:
-                    st.write("⚠️ No booking ID found in card, skipping...")
+                    st.write(f"⚠️ No booking ID found in card #{i+1} for {property_name}, skipping...")
             except Exception as e:
-                logger.error(f"Error scraping booking #{i+1} directly: {str(e)}")
-                st.write(f"⚠️ Error scraping booking #{i+1} directly: {str(e)}")
+                logger.error(f"Error scraping booking #{i+1} directly for {property_name} (ID: {hotel_id}): {str(e)}")
+                st.error(f"Error scraping booking #{i+1} directly for {property_name} (ID: {hotel_id}): {str(e)}")
     
     return bookings
 
@@ -243,15 +256,15 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
     try:
         logger.info(f"Available secrets: {list(st.secrets.keys())}")
         if "stayflexi" not in st.secrets:
-            logger.error("Missing 'stayflexi' secrets in Streamlit configuration")
-            st.error(f"❌ Missing Stayflexi credentials. Available secrets: {list(st.secrets.keys())}")
+            logger.error(f"Missing 'stayflexi' secrets for {property_name} (ID: {hotel_id})")
+            st.error(f"Missing Stayflexi credentials for {property_name} (ID: {hotel_id}). Available secrets: {list(st.secrets.keys())}")
             return []
         
         driver = setup_driver(chrome_profile_path)
         wait = WebDriverWait(driver, 30)
         bookings = []
         
-        st.write(f"🔹 Opening StayFlexi for {property_name}...")
+        st.write(f"🔹 Opening StayFlexi for {property_name} (ID: {hotel_id})...")
         driver.get("https://app.stayflexi.com/auth/login")
         logger.info(f"Navigated to Stayflexi login page for {property_name}")
         
@@ -271,12 +284,12 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
             
             login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
             login_button.click()
-            st.write("✅ Logged in successfully")
+            st.write(f"✅ Logged in successfully for {property_name}")
             logger.info(f"Logged in successfully for {property_name}")
             time.sleep(5)
         except Exception as e:
-            logger.warning(f"Login attempt failed for {property_name}: {str(e)}")
-            st.warning(f"⚠️ Login failed for {property_name}: {str(e)}")
+            logger.warning(f"Login attempt failed for {property_name} (ID: {hotel_id}): {str(e)}")
+            st.error(f"Login failed for {property_name} (ID: {hotel_id}): {str(e)}")
             return []
         
         dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
@@ -296,91 +309,4 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
         
         return bookings
     except Exception as e:
-        logger.error(f"Error for {property_name}: {str(e)}")
-        st.error(f"❌ Error for {property_name}: {str(e)}")
-        return []
-    finally:
-        if driver:
-            try:
-                driver.quit()
-                logger.info(f"Closed WebDriver for {property_name}")
-            except Exception as e:
-                logger.warning(f"Failed to close WebDriver for {property_name}: {str(e)}")
-
-def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> None:
-    """Store OTA bookings in Supabase 'otabooking' table.
-    
-    Args:
-        bookings (List[Dict[str, str]]): List of booking data.
-        property_name (str): Name of the property.
-    """
-    for booking in bookings:
-        try:
-            is_duplicate, existing_id = check_duplicate_guest(
-                supabase, "otabooking", 
-                booking.get('guest_name', ''), 
-                booking.get('guest_phone', ''), 
-                booking.get('room_number', '')
-            )
-            if is_duplicate:
-                st.warning(f"ℹ️ Duplicate booking {booking.get('booking_id')} (exists as {existing_id})")
-                logger.info(f"Skipped duplicate booking {booking.get('booking_id')} for {property_name}")
-                continue
-        
-            data = {
-                "property": property_name,
-                "report_date": datetime.now().date().isoformat(),
-                "booking_date": booking.get('booking_date'),
-                "booking_id": booking.get('booking_id'),
-                "booking_source": booking.get('booking_source'),
-                "guest_name": booking.get('name'),
-                "guest_phone": booking.get('guest_phone'),
-                "check_in": booking.get('check_in'),
-                "check_out": booking.get('check_out'),
-                "total_with_taxes": safe_float(booking.get('total_with_taxes')),
-                "payment_made": safe_float(booking.get('payment_made')),
-                "adults_children_infant": booking.get('adults_children_infant'),
-                "room_number": booking.get('room_number'),
-                "total_without_taxes": safe_float(booking.get('total_without_taxes')),
-                "total_tax_amount": safe_float(booking.get('total_tax_amount')),
-                "room_type": booking.get('room_type'),
-                "rate_plan": booking.get('rate_plan'),
-                "created_at": datetime.now().isoformat()
-            }
-        
-            supabase.table("otabooking").insert(data).execute()
-            st.success(f"✅ Stored booking {booking.get('booking_id')} for {property_name}")
-            logger.info(f"Stored booking {booking.get('booking_id')} for {property_name}")
-        except Exception as e:
-            st.error(f"❌ Error storing booking {booking.get('booking_id', 'unknown')}: {str(e)}")
-            logger.error(f"Error storing booking for {property_name}: {str(e)}")
-
-def fetch_for_property(property_name: str, hotel_id: str) -> None:
-    """Fetch OTA bookings for a single property.
-    
-    Args:
-        property_name (str): Name of the property.
-        hotel_id (str): Hotel ID for the property.
-    """
-    bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
-    if bookings:
-        store_in_supabase(bookings, property_name)
-    else:
-        st.warning(f"⚠️ No bookings fetched for {property_name}")
-        logger.warning(f"No bookings fetched for {property_name}")
-
-def show_online_reservations() -> None:
-    """Streamlit UI for online reservations."""
-    st.title("📡 Online Reservations (OTA Bookings)")
-    st.markdown("Sync bookings from Stayflexi for each property.")
-
-    if st.button("🔄 Sync All Properties", key="sync_all"):
-        with st.spinner("Syncing all properties..."):
-            progress_bar = st.progress(0)
-            total = len(PROPERTIES)
-            for i, (name, id) in enumerate(PROPERTIES.items()):
-                try:
-                    fetch_for_property(name, id)
-                    progress_bar.progress((i + 1) / total)
-                except Exception as e:
-                    st.error(f"
+        logger.error(f"Error for {property_name} (
