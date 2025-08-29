@@ -7,12 +7,12 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 import chromedriver_autoinstaller
+import os
+import logging
 from datetime import datetime
 import time
 import re
 from bs4 import BeautifulSoup
-import os
-import logging
 from config import SUPABASE_URL, SUPABASE_KEY
 from utils import safe_int, safe_float, check_duplicate_guest, get_property_name
 
@@ -47,11 +47,13 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Chrome profile path for cloud compatibility
 CHROME_PROFILE_PATH = os.getenv("CHROME_PROFILE_PATH", "/tmp/chrome_profile")
+CHROMEDRIVER_PATH = "/tmp/chromedriver/chromedriver"
 
 def setup_driver(chrome_profile_path):
     """Set up Chrome WebDriver with the specified user profile."""
     try:
         os.makedirs(chrome_profile_path, exist_ok=True)
+        os.makedirs(os.path.dirname(CHROMEDRIVER_PATH), exist_ok=True)
         chrome_options = Options()
         chrome_options.add_argument(f"user-data-dir={chrome_profile_path}")
         chrome_options.add_argument("profile-directory=Profile 20")
@@ -62,11 +64,12 @@ def setup_driver(chrome_profile_path):
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
         chrome_options.add_argument("--window-size=1920,1080")  # Set window size
-        # Specify Chromium binary location
         chrome_options.binary_location = "/usr/bin/chromium"
-        # Install ChromeDriver compatible with installed Chromium
-        chromedriver_path = chromedriver_autoinstaller.install()
+        # Install ChromeDriver in a writable directory
+        chromedriver_path = chromedriver_autoinstaller.install(path=os.path.dirname(CHROMEDRIVER_PATH))
         logger.info(f"ChromeDriver installed at: {chromedriver_path}")
+        # Ensure ChromeDriver is executable
+        os.chmod(chromedriver_path, 0o755)
         service = ChromeService(executable_path=chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         logger.info("Chrome WebDriver initialized successfully")
