@@ -5,14 +5,20 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
 import time
 import re
 from bs4 import BeautifulSoup
 import os
+import logging
 from config import SUPABASE_URL, SUPABASE_KEY
 from utils import safe_int, safe_float, check_duplicate_guest, get_property_name
+
+# Set up logging for debugging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Dictionary of properties and their hotel IDs
 PROPERTIES = {
@@ -44,17 +50,27 @@ CHROME_PROFILE_PATH = os.getenv("CHROME_PROFILE_PATH", "/tmp/chrome_profile")
 
 def setup_driver(chrome_profile_path):
     """Set up Chrome WebDriver with the specified user profile."""
-    os.makedirs(chrome_profile_path, exist_ok=True)
-    chrome_options = Options()
-    chrome_options.add_argument(f"user-data-dir={chrome_profile_path}")
-    chrome_options.add_argument("profile-directory=Profile 20")
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-    chrome_options.add_argument("--log-level=3")
-    chrome_options.add_argument("--headless")  # Run headless for cloud
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(service=webdriver.Service(ChromeDriverManager().install()), options=chrome_options)
-    return driver
+    try:
+        os.makedirs(chrome_profile_path, exist_ok=True)
+        chrome_options = Options()
+        chrome_options.add_argument(f"user-data-dir={chrome_profile_path}")
+        chrome_options.add_argument("profile-directory=Profile 20")
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument("--log-level=3")
+        chrome_options.add_argument("--headless=new")  # Use new headless mode
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
+        chrome_options.add_argument("--window-size=1920,1080")  # Set window size
+        # Explicitly use ChromeService
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        logger.info("Chrome WebDriver initialized successfully")
+        return driver
+    except Exception as e:
+        logger.error(f"Failed to set up Chrome WebDriver: {str(e)}")
+        st.error(f"❌ Failed to initialize browser: {str(e)}")
+        raise
 
 def match_patterns_on_page(page_source):
     """Extract specific fields from page source using regex patterns."""
@@ -98,12 +114,14 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiCollapse-root.MuiCollapse-vertical.MuiCollapse-hidden")))
         st.write(f"📋 Found {len(booking_cards)} booking entries using MuiCollapse-hidden")
     except Exception as e:
+        logger.warning(f"Could not find booking entries with MuiCollapse-hidden: {str(e)}")
         st.write(f"⚠️ Could not find booking entries with MuiCollapse-hidden: {str(e)}")
         try:
             booking_cards = wait.until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.MuiAccordionSummary-content.Mui-expanded.MuiAccordionSummary-contentGutters")))
             st.write(f"📋 Found {len(booking_cards)} booking entries using MuiAccordionSummary-expanded")
         except Exception as e:
+            logger.warning(f"Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
             st.write(f"⚠️ Could not find booking entries with MuiAccordionSummary-expanded: {str(e)}")
             booking_cards = []
 
@@ -122,6 +140,7 @@ def fetch_and_display_bookings(driver, wait, hotel_id):
             else:
                 st.write("⚠️ No booking ID found, skipping...")
         except Exception as e:
+            logger.error(f"Error extracting booking #{i+1}: {str(e)}")
             st.write(f"⚠️ Error extracting booking #{i+1}: {str(e)}")
     
     return bookings
@@ -133,11 +152,12 @@ def is_ota_booking(booking):
 
 def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
     """Login to Stayflexi and navigate to reservations."""
-    driver = setup_driver(chrome_profile_path)
-    wait = WebDriverWait(driver, 20)
-    bookings = []
-    
+    driver = None
     try:
+        driver = setup_driver(chrome_profile_path)
+        wait = WebDriverWait(driver, 20)
+        bookings = []
+        
         st.write(f"🔹 Opening StayFlexi for {property_name}...")
         driver.get("https://app.stayflexi.com/auth/login")
         
@@ -156,8 +176,9 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
             login_button.click()
             st.write("✅ Logged in successfully")
             time.sleep(5)
-        except:
-            st.write("🔹 Already logged in.")
+        except Exception as e:
+            logger.warning(f"Login attempt failed, possibly already logged in: {str(e)}")
+            st.write("🔹 Already logged in or login failed, proceeding...")
         
         dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
         dashboard_button.click()
@@ -171,54 +192,67 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
         bookings = [b for b in all_bookings if is_ota_booking(b)]
         st.write(f"📋 Fetched {len(bookings)} OTA bookings for {property_name}")
         
-    except Exception as e:
-        st.error(f"❌ Error for {property_name}: {str(e)}")
-    finally:
-        driver.quit()
         return bookings
+    except Exception as e:
+        logger.error(f"Error for {property_name}: {str(e)}")
+        st.error(f"❌ Error for {property_name}: {str(e)}")
+        return []
+    finally:
+        if driver:
+            driver.quit()
+            logger.info(f"Closed WebDriver for {property_name}")
 
 def store_in_supabase(bookings, property_name):
     """Store OTA bookings in Supabase 'otabooking' table."""
     for booking in bookings:
-        is_duplicate, existing_id = check_duplicate_guest(supabase, "otabooking", 
-                                                        booking.get('guest_name', ''), 
-                                                        booking.get('guest_phone', ''), 
-                                                        booking.get('room_number', ''))
-        if is_duplicate:
-            st.warning(f"ℹ️ Duplicate booking {booking.get('booking_id')} (exists as {existing_id})")
-            continue
-        
-        data = {
-            "property": property_name,
-            "report_date": datetime.now().date().isoformat(),
-            "booking_date": booking.get('booking_date'),
-            "booking_id": booking.get('booking_id'),
-            "booking_source": booking.get('booking_source'),
-            "guest_name": booking.get('name'),
-            "guest_phone": booking.get('guest_phone'),
-            "check_in": booking.get('check_in'),
-            "check_out": booking.get('check_out'),
-            "total_with_taxes": safe_float(booking.get('total_with_taxes')),
-            "payment_made": safe_float(booking.get('payment_made')),
-            "adults_children_infant": booking.get('adults_children_infant'),
-            "room_number": booking.get('room_number'),
-            "total_without_taxes": safe_float(booking.get('total_without_taxes')),
-            "total_tax_amount": safe_float(booking.get('total_tax_amount')),
-            "room_type": booking.get('room_type'),
-            "rate_plan": booking.get('rate_plan'),
-            "created_at": datetime.now().isoformat()
-        }
-        
         try:
+            is_duplicate, existing_id = check_duplicate_guest(
+                supabase, "otabooking", 
+                booking.get('guest_name', ''), 
+                booking.get('guest_phone', ''), 
+                booking.get('room_number', '')
+            )
+            if is_duplicate:
+                st.warning(f"ℹ️ Duplicate booking {booking.get('booking_id')} (exists as {existing_id})")
+                logger.info(f"Skipped duplicate booking {booking.get('booking_id')} for {property_name}")
+                continue
+        
+            data = {
+                "property": property_name,
+                "report_date": datetime.now().date().isoformat(),
+                "booking_date": booking.get('booking_date'),
+                "booking_id": booking.get('booking_id'),
+                "booking_source": booking.get('booking_source'),
+                "guest_name": booking.get('name'),
+                "guest_phone": booking.get('guest_phone'),
+                "check_in": booking.get('check_in'),
+                "check_out": booking.get('check_out'),
+                "total_with_taxes": safe_float(booking.get('total_with_taxes')),
+                "payment_made": safe_float(booking.get('payment_made')),
+                "adults_children_infant": booking.get('adults_children_infant'),
+                "room_number": booking.get('room_number'),
+                "total_without_taxes": safe_float(booking.get('total_without_taxes')),
+                "total_tax_amount": safe_float(booking.get('total_tax_amount')),
+                "room_type": booking.get('room_type'),
+                "rate_plan": booking.get('rate_plan'),
+                "created_at": datetime.now().isoformat()
+            }
+        
             supabase.table("otabooking").insert(data).execute()
             st.success(f"✅ Stored booking {booking.get('booking_id')} for {property_name}")
+            logger.info(f"Stored booking {booking.get('booking_id')} for {property_name}")
         except Exception as e:
-            st.error(f"❌ Error storing booking: {str(e)}")
+            st.error(f"❌ Error storing booking {booking.get('booking_id', 'unknown')}: {str(e)}")
+            logger.error(f"Error storing booking for {property_name}: {str(e)}")
 
 def fetch_for_property(property_name, hotel_id):
     """Fetch OTA bookings for a single property."""
     bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
-    store_in_supabase(bookings, property_name)
+    if bookings:
+        store_in_supabase(bookings, property_name)
+    else:
+        st.warning(f"⚠️ No bookings fetched for {property_name}")
+        logger.warning(f"No bookings fetched for {property_name}")
 
 def show_online_reservations():
     """Streamlit UI for online reservations."""
@@ -230,13 +264,22 @@ def show_online_reservations():
             progress_bar = st.progress(0)
             total = len(PROPERTIES)
             for i, (name, id) in enumerate(PROPERTIES.items()):
-                fetch_for_property(name, id)
-                progress_bar.progress((i + 1) / total)
+                try:
+                    fetch_for_property(name, id)
+                    progress_bar.progress((i + 1) / total)
+                except Exception as e:
+                    st.error(f"❌ Error syncing {name}: {str(e)}")
+                    logger.error(f"Error syncing {name}: {str(e)}")
             st.success("✅ All properties synced!")
+            logger.info("Completed syncing all properties")
 
     for name, id in PROPERTIES.items():
         col1, col2 = st.columns([4, 1])
         col1.write(f"🏨 {name} (ID: {id})")
         if col2.button(f"🔄 Sync {name}", key=f"sync_{name}"):
             with st.spinner(f"Syncing {name}..."):
-                fetch_for_property(name, id)
+                try:
+                    fetch_for_property(name, id)
+                except Exception as e:
+                    st.error(f"❌ Error syncing {name}: {str(e)}")
+                    logger.error(f"Error syncing {name}: {str(e)}")
