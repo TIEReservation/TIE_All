@@ -9,10 +9,12 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 import chromedriver_autoinstaller
 import os
 import logging
+import shutil
 from datetime import datetime
 import time
 import re
 from bs4 import BeautifulSoup
+from tenacity import retry, stop_after_attempt, wait_fixed
 from config import SUPABASE_URL, SUPABASE_KEY
 from utils import safe_int, safe_float, check_duplicate_guest, get_property_name
 
@@ -45,15 +47,19 @@ OTA_SOURCES = ['Booking.com', 'Expedia', 'Agoda', 'Goibibo', 'MakeMyTrip', 'Stay
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Chrome profile path for cloud compatibility
-CHROME_PROFILE_PATH = os.getenv("CHROME_PROFILE_PATH", "/tmp/chrome_profile")
+# Chrome profile and ChromeDriver paths
+CHROME_PROFILE_PATH = os.getenv("CHROME_PROFILE_PATH", f"/tmp/chrome_profile_{int(time.time())}")
 CHROMEDRIVER_PATH = "/tmp/chromedriver/chromedriver"
 
 def setup_driver(chrome_profile_path):
-    """Set up Chrome WebDriver with the specified user profile."""
+    """Set up Chrome WebDriver with a fresh user profile."""
     try:
+        # Clear previous Chrome profile to ensure fresh session
+        if os.path.exists(chrome_profile_path):
+            shutil.rmtree(chrome_profile_path, ignore_errors=True)
         os.makedirs(chrome_profile_path, exist_ok=True)
         os.makedirs(os.path.dirname(CHROMEDRIVER_PATH), exist_ok=True)
+        
         chrome_options = Options()
         chrome_options.add_argument(f"user-data-dir={chrome_profile_path}")
         chrome_options.add_argument("profile-directory=Profile 20")
@@ -65,6 +71,7 @@ def setup_driver(chrome_profile_path):
         chrome_options.add_argument("--disable-gpu")  # Disable GPU for cloud
         chrome_options.add_argument("--window-size=1920,1080")  # Set window size
         chrome_options.binary_location = "/usr/bin/chromium"
+        
         # Install ChromeDriver in a writable directory
         chromedriver_path = chromedriver_autoinstaller.install(path=os.path.dirname(CHROMEDRIVER_PATH))
         logger.info(f"ChromeDriver installed at: {chromedriver_path}")
@@ -109,8 +116,9 @@ def extract_booking_data_from_text(text):
     booking_data = match_patterns_on_page(text)
     return booking_data
 
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def fetch_and_display_bookings(driver, wait, hotel_id):
-    """Fetch and display all booking information entries."""
+    """Fetch and display all booking information entries with retries."""
     st.write("🔹 Fetching all booking information entries...")
     bookings = []
 
@@ -161,43 +169,60 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
     """Login to Stayflexi and navigate to reservations."""
     driver = None
     try:
+        # Check for stayflexi secrets
+        if "stayflexi" not in st.secrets:
+            logger.error("Missing 'stayflexi' secrets in Streamlit configuration")
+            st.error("❌ Missing Stayflexi credentials. Please add 'stayflexi' email and password to Streamlit secrets.")
+            return []
+        
         driver = setup_driver(chrome_profile_path)
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)  # Increased timeout
         bookings = []
         
         st.write(f"🔹 Opening StayFlexi for {property_name}...")
         driver.get("https://app.stayflexi.com/auth/login")
+        logger.info(f"Navigated to Stayflexi login page for {property_name}")
         
         try:
             email_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='text']")))
             email_field.clear()
             email_field.send_keys(st.secrets["stayflexi"]["email"])
+            logger.info(f"Entered email for {property_name}")
             
             login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
             login_button.click()
+            logger.info(f"Clicked first Sign In button for {property_name}")
             
             password_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
             password_field.send_keys(st.secrets["stayflexi"]["password"])
+            logger.info(f"Entered password for {property_name}")
             
             login_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Sign In')]")))
             login_button.click()
             st.write("✅ Logged in successfully")
+            logger.info(f"Logged in successfully for {property_name}")
             time.sleep(5)
         except Exception as e:
-            logger.warning(f"Login attempt failed, possibly already logged in: {str(e)}")
-            st.write("🔹 Already logged in or login failed, proceeding...")
+            logger.warning(f"Login attempt failed for {property_name}: {str(e)}")
+            st.warning(f"⚠️ Login failed for {property_name}: {str(e)}")
+            return []
         
+        # Navigate to dashboard
         dashboard_button = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[@href='/dashboard?hotelId={hotel_id}']")))
         dashboard_button.click()
+        logger.info(f"Clicked dashboard button for hotel ID {hotel_id}")
         time.sleep(3)
         driver.switch_to.window(driver.window_handles[-1])
         
+        # Navigate to reservations
         reservations_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Reservations')]")))
         reservations_button.click()
+        logger.info(f"Clicked Reservations button for {property_name}")
         
         all_bookings = fetch_and_display_bookings(driver, wait, hotel_id)
         bookings = [b for b in all_bookings if is_ota_booking(b)]
         st.write(f"📋 Fetched {len(bookings)} OTA bookings for {property_name}")
+        logger.info(f"Fetched {len(bookings)} OTA bookings for {property_name}")
         
         return bookings
     except Exception as e:
@@ -206,8 +231,11 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
         return []
     finally:
         if driver:
-            driver.quit()
-            logger.info(f"Closed WebDriver for {property_name}")
+            try:
+                driver.quit()
+                logger.info(f"Closed WebDriver for {property_name}")
+            except Exception as e:
+                logger.warning(f"Failed to close WebDriver for {property_name}: {str(e)}")
 
 def store_in_supabase(bookings, property_name):
     """Store OTA bookings in Supabase 'otabooking' table."""
