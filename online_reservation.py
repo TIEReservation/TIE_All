@@ -169,10 +169,11 @@ def login_to_stayflexi(chrome_profile_path, property_name, hotel_id):
     """Login to Stayflexi and navigate to reservations."""
     driver = None
     try:
-        # Check for stayflexi secrets
+        # Debug secrets
+        logger.info(f"Available secrets: {list(st.secrets.keys())}")
         if "stayflexi" not in st.secrets:
             logger.error("Missing 'stayflexi' secrets in Streamlit configuration")
-            st.error("❌ Missing Stayflexi credentials. Please add 'stayflexi' email and password to Streamlit secrets.")
+            st.error("❌ Missing Stayflexi credentials. Please add 'stayflexi' email and password to Streamlit secrets. Available secrets: {}".format(list(st.secrets.keys())))
             return []
         
         driver = setup_driver(chrome_profile_path)
