@@ -1,4 +1,3 @@
-```python
 from datetime import datetime
 import streamlit as st
 import requests
@@ -75,4 +74,3 @@ def get_property_name(hotel_id):
         "32470": "Le Park Resort"
     }
     return property_mapping.get(hotel_id, "Unknown Property")
-```
