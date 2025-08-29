@@ -1,6 +1,2 @@
-STAYFLEXI_API_URL = "https://api.stayflexi.com/core/api/v1/reservation/navigationGetRoomBookings"
-STAYFLEXI_API_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJnYXlhdGhyaS50aWVAZ21haWwuY29tIiwiaXNzIjoibWF5YW5rU0YiLCJpYXQiOjE3NTQ0ODE4MjQsImV4cCI6MTc4NTU4NTgyNH0.9UmdbaCu7P5_Mfm8nIAaT2MDLR_RyTx3RdouMC0dP0o"
-STAYFLEXI_API_BASE_URL = "https://api.stayflexi.com"
-STAYFLEXI_EMAIL = "gayathri.tie@gmail.com"
 SUPABASE_URL = "https://oxbrezracnmazucnnqox.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo"
