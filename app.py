@@ -39,7 +39,6 @@ def check_authentication():
                 st.session_state.reservations = []
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
-                # Fetch reservations using load_reservations_from_supabase
                 try:
                     st.session_state.reservations = load_reservations_from_supabase()
                     if st.session_state.reservations:
@@ -55,7 +54,6 @@ def check_authentication():
                 st.session_state.reservations = []
                 st.session_state.edit_mode = False
                 st.session_state.edit_index = None
-                # Fetch reservations using load_reservations_from_supabase
                 try:
                     st.session_state.reservations = load_reservations_from_supabase()
                     if st.session_state.reservations:
@@ -90,7 +88,6 @@ def main():
     elif page == "Analytics" and st.session_state.role == "Management":
         show_analytics()
 
-    # Logout button
     if st.sidebar.button("Log Out"):
         st.session_state.authenticated = False
         st.session_state.role = None
