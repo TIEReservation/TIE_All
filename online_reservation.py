@@ -61,7 +61,7 @@ def setup_driver(chrome_profile_path: str) -> webdriver.Chrome:
         raise
 
 def extract_booking_data_from_text(text: str, hotel_id: str) -> Dict[str, str]:
-    """Extract booking information including room number and type from text - using logic from Daily_DMS_All.py"""
+    """Extract booking information including room number and type from text - ENHANCED with source detection"""
     booking_data = {
         'name': None,
         'booking_id': None,
@@ -76,10 +76,49 @@ def extract_booking_data_from_text(text: str, hotel_id: str) -> Dict[str, str]:
         'room_number': 'N/A',
         'room_type': 'N/A',
         'rate_plan': 'N/A',
-        'adults_children_infant': 'N/A'
+        'adults_children_infant': 'N/A',
+        '_original_text': text  # Store for debugging
     }
 
     lines = text.split('\n')
+
+    # ENHANCED BOOKING SOURCE DETECTION FROM TEXT
+    text_upper = text.upper()
+    source_found = False
+    
+    # Check for OTA sources in the text with more comprehensive patterns
+    ota_patterns = {
+        'BOOKING.COM': ['BOOKING.COM', 'BOOKING COM', 'BOOKINGCOM', 'BOOKING DOT COM', 'BOOKING_COM'],
+        'AGODA': ['AGODA'],
+        'EXPEDIA': ['EXPEDIA', 'EXPEDIA.COM'],
+        'MAKEMYTRIP': ['MAKEMYTRIP', 'MAKE MY TRIP', 'MMT'],
+        'GOIBIBO': ['GOIBIBO'],
+        'CLEARTRIP': ['CLEARTRIP', 'CLEAR TRIP'],
+        'TRAVELOKA': ['TRAVELOKA'],
+        'AIRBNB': ['AIRBNB'],
+        'HOTELS.COM': ['HOTELS.COM', 'HOTELS COM'],
+        'PRICELINE': ['PRICELINE']
+    }
+    
+    for ota_name, patterns in ota_patterns.items():
+        if any(pattern in text_upper for pattern in patterns):
+            booking_data['booking_source'] = ota_name
+            source_found = True
+            logger.info(f"Booking source detected from text: {ota_name} for booking ID: {booking_data.get('booking_id', 'unknown')}")
+            break
+    
+    if not source_found:
+        # Look for less obvious OTA indicators
+        ota_indicators = ['COMMISSION', 'BOOKING REFERENCE', 'CONFIRMATION CODE', 'CHANNEL', 'PARTNER']
+        if any(indicator in text_upper for indicator in ota_indicators):
+            booking_data['booking_source'] = 'UNKNOWN_OTA'
+            logger.info("Possible OTA booking detected based on text indicators")
+        else:
+            # Check for patterns that might indicate online booking vs walk-in
+            online_indicators = ['ONLINE', 'WEB', 'INTERNET', 'EMAIL', 'CONFIRMED']
+            if any(indicator in text_upper for indicator in online_indicators):
+                booking_data['booking_source'] = 'POSSIBLE_OTA'
+                logger.info("Possible online booking detected")
 
     # Extract name - should be the first line if it doesn't contain booking patterns
     if lines and not re.search(r'SFBOOKING|Rs\.|CONFIRMED|ON_HOLD|Mar| - |[0-9]', lines[0]):
@@ -138,55 +177,193 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
 
             time.sleep(2)
 
-            # Extract booking source with better error handling
+            # ENHANCED BOOKING SOURCE EXTRACTION
             try:
-                # Try multiple approaches to find booking source
                 booking_source_found = False
+                original_source = booking.get('booking_source')  # Keep original detection
                 
-                # Method 1: Look for BOOKING.COM specifically
-                try:
-                    booking_source_elem = wait.until(EC.presence_of_element_located(
-                        (By.XPATH, "//div[@class='sourceName' and contains(text(), 'BOOKING.COM')]")))
-                    booking['booking_source'] = booking_source_elem.text.strip()
+                # Method 1: Check if we already detected source from original text
+                if original_source and original_source not in ['DIRECT', None]:
                     booking_source_found = True
-                    logger.info(f"Booking Source (Method 1): {booking['booking_source']}")
-                except Exception:
-                    pass
+                    logger.info(f"Using booking source from original text: {original_source}")
                 
-                # Method 2: Look for any element with sourceName class
+                # Method 2: Look for specific OTA elements on folio page
                 if not booking_source_found:
                     try:
-                        source_elements = driver.find_elements(By.CLASS_NAME, "sourceName")
-                        for elem in source_elements:
-                            text = elem.text.strip()
-                            if text and any(ota.upper() in text.upper() for ota in ['BOOKING', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO']):
-                                booking['booking_source'] = text
-                                booking_source_found = True
-                                logger.info(f"Booking Source (Method 2): {booking['booking_source']}")
-                                break
-                    except Exception:
-                        pass
+                        # Try different selectors for booking source
+                        source_selectors = [
+                            "div.sourceName",
+                            "[class*='source']",
+                            "[class*='booking']", 
+                            "div[class*='MuiTypography'][class*='body']",
+                            ".css-*[class*='source']"
+                        ]
+                        
+                        for selector in source_selectors:
+                            try:
+                                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                                for elem in elements:
+                                    text = elem.text.strip().upper()
+                                    if text and any(ota.upper() in text for ota in ['BOOKING', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO']):
+                                        booking['booking_source'] = text
+                                        booking_source_found = True
+                                        logger.info(f"Booking Source found via CSS selector '{selector}': {booking['booking_source']}")
+                                        break
+                                if booking_source_found:
+                                    break
+                            except Exception as selector_error:
+                                logger.debug(f"Selector '{selector}' failed: {str(selector_error)}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"CSS selector method failed: {str(e)}")
                 
-                # Method 3: Search for OTA patterns in all text
+                # Method 3: Search entire page source for OTA indicators
                 if not booking_source_found:
                     try:
                         page_source = driver.page_source.upper()
-                        for ota in ['BOOKING.COM', 'BOOKING COM', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO']:
-                            if ota in page_source:
-                                booking['booking_source'] = ota
+                        
+                        # More comprehensive OTA detection patterns
+                        ota_patterns = {
+                            'BOOKING.COM': ['BOOKING.COM', 'BOOKING COM', '"BOOKING"', 'BOOKINGCOM', 'BOOKING_COM'],
+                            'AGODA': ['AGODA', '"AGODA"'],
+                            'EXPEDIA': ['EXPEDIA', '"EXPEDIA"'],
+                            'MAKEMYTRIP': ['MAKEMYTRIP', 'MAKE MY TRIP', '"MAKEMYTRIP"'],
+                            'GOIBIBO': ['GOIBIBO', '"GOIBIBO"'],
+                            'CLEARTRIP': ['CLEARTRIP', '"CLEARTRIP"'],
+                            'TRAVELOKA': ['TRAVELOKA', '"TRAVELOKA"'],
+                            'HOTELS.COM': ['HOTELS.COM', 'HOTELS COM'],
+                            'AIRBNB': ['AIRBNB']
+                        }
+                        
+                        for ota_name, patterns in ota_patterns.items():
+                            if any(pattern in page_source for pattern in patterns):
+                                booking['booking_source'] = ota_name
                                 booking_source_found = True
-                                logger.info(f"Booking Source (Method 3): {booking['booking_source']}")
+                                logger.info(f"Booking Source found in page source: {booking['booking_source']}")
                                 break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Page source search failed: {str(e)}")
                 
+                # Method 4: Check URL parameters or hidden fields
                 if not booking_source_found:
-                    booking['booking_source'] = 'DIRECT'  # Default to DIRECT instead of None
-                    logger.warning("Could not find booking source, defaulting to DIRECT")
-                    
+                    try:
+                        current_url = driver.current_url.upper()
+                        if 'BOOKING' in current_url or 'AGODA' in current_url:
+                            # Extract from URL if possible
+                            for ota in ['BOOKING', 'AGODA', 'EXPEDIA']:
+                                if ota in current_url:
+                                    booking['booking_source'] = ota + '.COM' if ota != 'AGODA' else ota
+                                    booking_source_found = True
+                                    logger.info(f"Booking Source found in URL: {booking['booking_source']}")
+                                    break
+                    except Exception as e:
+                        logger.warning(f"URL check failed: {str(e)}")
+                
+                # Method 5: Enhanced JavaScript search for booking source
+                if not booking_source_found:
+                    try:
+                        js_source_check = driver.execute_script("""
+                            // Check for data attributes containing source info
+                            const elements = document.querySelectorAll('[data-source], [data-booking-source], input[type="hidden"]');
+                            for (let elem of elements) {
+                                const value = elem.value || elem.dataset.source || elem.dataset.bookingSource || elem.textContent;
+                                if (value && (value.toLowerCase().includes('booking') || value.toLowerCase().includes('agoda') || value.toLowerCase().includes('expedia'))) {
+                                    return value;
+                                }
+                            }
+                            
+                            // Check for any text nodes containing OTA names
+                            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                            let node;
+                            const candidates = [];
+                            
+                            while (node = walker.nextNode()) {
+                                const text = node.textContent.trim().toLowerCase();
+                                if (text.includes('booking.com') || text.includes('agoda') || text.includes('expedia') || 
+                                    text.includes('makemytrip') || text.includes('goibibo')) {
+                                    candidates.push(text);
+                                }
+                            }
+                            
+                            return candidates.length > 0 ? candidates[0] : null;
+                        """)
+                        
+                        if js_source_check:
+                            source_text = js_source_check.upper()
+                            if 'BOOKING' in source_text:
+                                booking['booking_source'] = 'BOOKING.COM'
+                            elif 'AGODA' in source_text:
+                                booking['booking_source'] = 'AGODA'
+                            elif 'EXPEDIA' in source_text:
+                                booking['booking_source'] = 'EXPEDIA'
+                            elif 'MAKEMYTRIP' in source_text:
+                                booking['booking_source'] = 'MAKEMYTRIP'
+                            elif 'GOIBIBO' in source_text:
+                                booking['booking_source'] = 'GOIBIBO'
+                            else:
+                                booking['booking_source'] = source_text[:50]  # Limit length
+                            booking_source_found = True
+                            logger.info(f"Booking Source found via JavaScript: {booking['booking_source']}")
+                    except Exception as e:
+                        logger.warning(f"JavaScript source check failed: {str(e)}")
+                
+                # Method 6: Debug logging - capture page content for analysis
+                if not booking_source_found:
+                    try:
+                        # Log detailed page information for debugging
+                        logger.warning(f"Could not find booking source for {booking['booking_id']} - logging debug info")
+                        logger.info(f"Page title: {driver.title}")
+                        logger.info(f"Current URL: {driver.current_url}")
+                        
+                        # Get all visible text elements for analysis
+                        visible_elements = driver.find_elements(By.XPATH, "//*[not(self::script or self::style)][string-length(normalize-space(text())) > 0]")
+                        visible_texts = []
+                        
+                        for elem in visible_elements[:20]:  # First 20 elements
+                            try:
+                                text = elem.text.strip()
+                                if text and len(text) < 100:  # Reasonable length
+                                    visible_texts.append(text)
+                            except:
+                                continue
+                        
+                        logger.info(f"Visible page elements: {visible_texts}")
+                        
+                        # Try to get some page content for debugging
+                        try:
+                            body_text = driver.find_element(By.TAG_NAME, "body").text
+                            # Look for any potential OTA indicators in the full text
+                            body_upper = body_text.upper()
+                            potential_sources = []
+                            
+                            for word in ['BOOKING', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO', 'CHANNEL', 'SOURCE']:
+                                if word in body_upper:
+                                    # Get context around the word
+                                    start_idx = max(0, body_upper.find(word) - 50)
+                                    end_idx = min(len(body_text), body_upper.find(word) + 50)
+                                    context = body_text[start_idx:end_idx]
+                                    potential_sources.append(f"{word}: ...{context}...")
+                            
+                            if potential_sources:
+                                logger.info(f"Potential source contexts found: {potential_sources}")
+                            else:
+                                logger.info("No obvious OTA indicators found in page text")
+                                
+                        except Exception as debug_error:
+                            logger.warning(f"Debug content extraction failed: {str(debug_error)}")
+                        
+                        # For now, don't default to DIRECT - leave as None/original for investigation
+                        if not booking.get('booking_source') or booking['booking_source'] in ['DIRECT']:
+                            booking['booking_source'] = None  # Will be handled in is_ota_booking function
+                            
+                    except Exception as debug_error:
+                        logger.error(f"Debug logging failed: {str(debug_error)}")
+                        
             except Exception as e:
-                booking['booking_source'] = 'DIRECT'  # Default to DIRECT instead of None
-                logger.warning(f"Error extracting booking source, defaulting to DIRECT: {str(e)}")
+                logger.error(f"Error in booking source extraction: {str(e)}")
+                # Don't override existing source detection from text
+                if not booking.get('booking_source'):
+                    booking['booking_source'] = None
 
             # Improved Rate Plan extraction with multiple strategies
             try:
@@ -368,51 +545,6 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                     except Exception:
                         pass
                 
-                # Strategy 4: Search in page source for guest count patterns (excluding field labels)
-                if not adults_children_found:
-                    try:
-                        page_text = driver.page_source
-                        # Look for patterns in the HTML, avoiding field labels
-                        guest_patterns = [
-                            r'"guests?"\s*:\s*"?(\d+/\d+/\d+)"?',
-                            r'data-guests?="(\d+/\d+/\d+)"',
-                            r'>(\d+/\d+/\d+)<',
-                            r'"occupancy"\s*:\s*"?(\d+)"?',
-                            r'"guest_count"\s*:\s*"?(\d+)"?'
-                        ]
-                        
-                        for pattern in guest_patterns:
-                            match = re.search(pattern, page_text, re.IGNORECASE)
-                            if match:
-                                result = match.group(1)
-                                if re.match(r'^\d+$', result):  # Single number
-                                    result = f"{result}/0/0"
-                                booking['adults_children_infant'] = result
-                                adults_children_found = True
-                                logger.info(f"Adults/Children/Infant found via page source: {booking['adults_children_infant']}")
-                                break
-                    except Exception as e:
-                        logger.warning(f"Page source search failed: {str(e)}")
-                
-                # Strategy 5: Look for number near guest-related text but not the label itself
-                if not adults_children_found:
-                    try:
-                        all_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Guest') or contains(text(), 'guest') or contains(text(), 'Pax') or contains(text(), 'pax')]")
-                        for elem in all_elements:
-                            # Look for numbers in the same element or nearby elements
-                            parent_text = elem.find_element(By.XPATH, "./..").text
-                            numbers = re.findall(r'\b(\d+)\b', parent_text)
-                            # Filter numbers that could be guest counts (1-20)
-                            valid_numbers = [n for n in numbers if 1 <= int(n) <= 20]
-                            if valid_numbers and not any(label in parent_text.lower() for label in ['adults/children/infant', 'adult/child/infant']):
-                                guest_count = valid_numbers[0]
-                                booking['adults_children_infant'] = f"{guest_count}/0/0"
-                                adults_children_found = True
-                                logger.info(f"Adults/Children/Infant found near guest text: {booking['adults_children_infant']}")
-                                break
-                    except Exception as e:
-                        logger.warning(f"Guest text search failed: {str(e)}")
-                
                 if not adults_children_found:
                     booking['adults_children_infant'] = '1/0/0'  # Default to 1 adult instead of N/A
                     logger.warning("Could not find Adults/Children/Infant using any method, defaulting to 1/0/0")
@@ -495,6 +627,10 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
             raw_text = summary_content.text.strip()
 
             logger.info(f"Raw text: {raw_text[:200]}{'...' if len(raw_text) > 200 else ''}")
+            
+            # DEBUG: Show raw text in Streamlit for analysis
+            st.write(f"DEBUG - Raw booking text sample: {raw_text[:300]}...")
+            
             booking_texts.append(raw_text)
             
         except Exception as e:
@@ -508,9 +644,15 @@ def fetch_and_display_bookings(driver: webdriver.Chrome, wait: WebDriverWait, ho
             # Extract booking data using the improved function
             booking_data = extract_booking_data_from_text(raw_text, hotel_id)
             
+            # DEBUG: Show extracted booking source
+            st.write(f"DEBUG - Extracted booking source: {booking_data.get('booking_source', 'None')}")
+            
             if booking_data.get('booking_id'):
                 # Fetch additional details from folio page (this navigates away)
                 fetch_folio_details(driver, wait, booking_data, hotel_id)
+                
+                # DEBUG: Show final booking source after folio fetch
+                st.write(f"DEBUG - Final booking source after folio: {booking_data.get('booking_source', 'None')}")
                 
                 # Navigate back to reservations page for next booking
                 if i < len(booking_texts) - 1:  # Don't navigate back on last booking
@@ -601,16 +743,28 @@ def match_patterns_on_page(driver: webdriver.Chrome, hotel_id: str) -> List[Dict
     return bookings
 
 def is_ota_booking(booking: Dict[str, str]) -> bool:
-    """Check if booking is from OTA with better error handling."""
+    """Enhanced OTA detection with better debugging and more inclusive criteria."""
     source = booking.get('booking_source')
     
     # Handle None or empty source
     if not source:
-        logger.warning(f"Booking source is None or empty for booking {booking.get('booking_id', 'unknown')}")
-        return False
+        logger.warning(f"Booking {booking.get('booking_id', 'unknown')} has no booking source")
+        
+        # TEMPORARY: For debugging, let's include bookings without source to see what we're missing
+        # In production, you might want to return False here
+        logger.info(f"TEMP: Including booking {booking.get('booking_id', 'unknown')} without source for analysis")
+        return True  # TEMPORARY - change to False in production
     
     source_lower = source.lower()
-    is_ota = any(ota.lower() in source_lower for ota in OTA_SOURCES)
+    
+    # Include more OTA indicators and temporary sources
+    ota_indicators = [
+        'booking', 'agoda', 'expedia', 'makemytrip', 'goibibo', 'cleartrip', 
+        'traveloka', 'hotels.com', 'airbnb', 'priceline',
+        'unknown_ota', 'possible_ota'  # Include our temporary markers
+    ]
+    
+    is_ota = any(indicator in source_lower for indicator in ota_indicators)
     
     logger.info(f"Booking {booking.get('booking_id', 'unknown')} source: '{source}', is_ota: {is_ota}")
     return is_ota
@@ -670,6 +824,11 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
         # Fetch all bookings using the improved logic
         all_bookings = fetch_and_display_bookings(driver, wait, hotel_id)
         
+        # DEBUG: Show all bookings before filtering
+        st.write(f"DEBUG - Total bookings found: {len(all_bookings)}")
+        for booking in all_bookings:
+            st.write(f"  - {booking.get('booking_id', 'No ID')} | Source: {booking.get('booking_source', 'None')} | Name: {booking.get('name', 'No name')}")
+        
         # Filter for OTA bookings with improved error handling
         bookings = []
         for booking in all_bookings:
@@ -719,10 +878,13 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
             continue
             
         try:
-            # Ensure booking_source is not None
-            if not booking.get('booking_source'):
-                booking['booking_source'] = 'DIRECT'
-                logger.info(f"Set booking_source to DIRECT for booking {booking.get('booking_id')}")
+            # Enhanced booking source handling
+            booking_source = booking.get('booking_source')
+            if not booking_source or booking_source in ['None', '']:
+                booking_source = 'UNKNOWN'  # Use UNKNOWN instead of DIRECT for null sources
+                logger.info(f"Set booking_source to UNKNOWN for booking {booking.get('booking_id')}")
+            
+            booking['booking_source'] = booking_source
             
             # Check if this exact combination of booking_id, property, and room_number already exists
             existing_exact_booking = supabase.table("otabooking").select("*").eq("property", property_name).eq("booking_id", booking.get('booking_id')).eq("room_number", booking.get('room_number', 'N/A')).execute()
@@ -788,7 +950,7 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
                 "booking_date": datetime.now().date().isoformat(),  # Using report date as booking date
                 "booking_id": unique_booking_id,  # Use unique booking ID to avoid constraint violation
                 "original_booking_id": booking.get('booking_id'),  # Store original booking ID for reference
-                "booking_source": booking.get('booking_source', 'DIRECT'),  # Ensure not None
+                "booking_source": booking_source,  # Ensure not None
                 "guest_name": booking.get('name', ''),
                 "guest_phone": booking.get('phone', ''),
                 "check_in": check_in,
@@ -804,7 +966,7 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
                 "created_at": datetime.now().isoformat()
             }
         
-            supabase.table("otabooking").insert(data).execute()
+            result = supabase.table("otabooking").insert(data).execute()
             st.success(f"Stored booking {booking.get('booking_id')} (room {booking.get('room_number', 'N/A')}) for {property_name}")
             logger.info(f"Stored booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
             stored_count += 1
