@@ -1246,11 +1246,11 @@ if __name__ == "__main__":
                                     const text = node.textContent.trim();
                                     
                                     // Pattern 1: Exact X/Y/Z format (highest priority)
-                                    if (/^\d+\/\d+\/\d+$/.test(text)) {
+                                    if (/^\\d+\\/\\d+\\/\\d+$/.test(text)) {
                                         candidates.push({text: text, priority: 1});
                                     }
                                     // Pattern 2: Single digit that might be guest count
-                                    else if (/^\d+$/.test(text) && parseInt(text) <= 20 && parseInt(text) > 0) {
+                                    else if (/^\\d+$/.test(text) && parseInt(text) <= 20 && parseInt(text) > 0) {
                                         const parentText = node.parentElement ? node.parentElement.textContent.toLowerCase() : '';
                                         if (parentText.includes('guest') || parentText.includes('adult') || parentText.includes('pax')) {
                                             candidates.push({text: text + '/0/0', priority: 2});
@@ -1259,13 +1259,14 @@ if __name__ == "__main__":
                                 }
                                 
                                 // Filter out field labels
-                                const filtered = candidates.filter(c => 
-                                    !c.text.toLowerCase().includes('adult') || 
-                                    !c.text.toLowerCase().includes('child') || 
-                                    !c.text.toLowerCase().includes('infant') ||
-                                    /^\d+\/\d+\/\d+$/.test(c.text) ||
-                                    /^\d+\/0\/0$/.test(c.text)
-                                );
+                                const filtered = candidates.filter(c => {
+                                    const lowerText = c.text.toLowerCase();
+                                    return !lowerText.includes('adult') && 
+                                           !lowerText.includes('child') && 
+                                           !lowerText.includes('infant') ||
+                                           /^\\d+\\/\\d+\\/\\d+$/.test(c.text) ||
+                                           /^\\d+\\/0\\/0$/.test(c.text);
+                                });
                                 
                                 // Sort by priority and return best match
                                 filtered.sort((a, b) => a.priority - b.priority);
