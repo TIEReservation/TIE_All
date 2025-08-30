@@ -138,14 +138,55 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
 
             time.sleep(2)
 
-            # Extract booking source
+            # Extract booking source with better error handling
             try:
-                booking_source_elem = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//div[@class='sourceName' and contains(text(), 'BOOKING.COM')]")))
-                booking['booking_source'] = booking_source_elem.text.strip()
-                logger.info(f"Booking Source: {booking['booking_source']}")
+                # Try multiple approaches to find booking source
+                booking_source_found = False
+                
+                # Method 1: Look for BOOKING.COM specifically
+                try:
+                    booking_source_elem = wait.until(EC.presence_of_element_located(
+                        (By.XPATH, "//div[@class='sourceName' and contains(text(), 'BOOKING.COM')]")))
+                    booking['booking_source'] = booking_source_elem.text.strip()
+                    booking_source_found = True
+                    logger.info(f"Booking Source (Method 1): {booking['booking_source']}")
+                except Exception:
+                    pass
+                
+                # Method 2: Look for any element with sourceName class
+                if not booking_source_found:
+                    try:
+                        source_elements = driver.find_elements(By.CLASS_NAME, "sourceName")
+                        for elem in source_elements:
+                            text = elem.text.strip()
+                            if text and any(ota.upper() in text.upper() for ota in ['BOOKING', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO']):
+                                booking['booking_source'] = text
+                                booking_source_found = True
+                                logger.info(f"Booking Source (Method 2): {booking['booking_source']}")
+                                break
+                    except Exception:
+                        pass
+                
+                # Method 3: Search for OTA patterns in all text
+                if not booking_source_found:
+                    try:
+                        page_source = driver.page_source.upper()
+                        for ota in ['BOOKING.COM', 'BOOKING COM', 'AGODA', 'EXPEDIA', 'MAKEMYTRIP', 'GOIBIBO']:
+                            if ota in page_source:
+                                booking['booking_source'] = ota
+                                booking_source_found = True
+                                logger.info(f"Booking Source (Method 3): {booking['booking_source']}")
+                                break
+                    except Exception:
+                        pass
+                
+                if not booking_source_found:
+                    booking['booking_source'] = 'DIRECT'  # Default to DIRECT instead of None
+                    logger.warning("Could not find booking source, defaulting to DIRECT")
+                    
             except Exception as e:
-                logger.warning(f"Could not fetch booking source: {str(e)}")
+                booking['booking_source'] = 'DIRECT'  # Default to DIRECT instead of None
+                logger.warning(f"Error extracting booking source, defaulting to DIRECT: {str(e)}")
 
             # Improved Rate Plan extraction with multiple strategies
             try:
@@ -227,7 +268,7 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                 booking['rate_plan'] = 'N/A'
                 logger.warning(f"Error in rate plan extraction: {str(e)}")
 
-            # Improved Adults/Children/Infant extraction with multiple strategies
+            # Enhanced Adults/Children/Infant extraction with multiple strategies
             try:
                 adults_children_found = False
                 
@@ -244,7 +285,56 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                         logger.info(f"Adults/Children/Infant found via pattern search: {booking['adults_children_infant']}")
                         break
                 
-                # Strategy 2: If not found, try the original XPath as fallback
+                # Strategy 2: Enhanced JavaScript search with more patterns
+                if not adults_children_found:
+                    try:
+                        js_adults_children = driver.execute_script("""
+                            function findAdultsChildren() {
+                                const walker = document.createTreeWalker(
+                                    document.body,
+                                    NodeFilter.SHOW_TEXT,
+                                    null,
+                                    false
+                                );
+                                
+                                let node;
+                                const candidates = [];
+                                
+                                while (node = walker.nextNode()) {
+                                    const text = node.textContent.trim();
+                                    
+                                    // Pattern 1: X/Y/Z format
+                                    if (/^\d+\/\d+\/\d+$/.test(text)) {
+                                        candidates.push({text: text, priority: 1});
+                                    }
+                                    // Pattern 2: "X Adults, Y Children, Z Infants"
+                                    else if (/\d+\s*Adult|Children|Infant/i.test(text)) {
+                                        candidates.push({text: text, priority: 2});
+                                    }
+                                    // Pattern 3: Numbers with context
+                                    else if (text.includes('Adult') || text.includes('Child') || text.includes('Guest')) {
+                                        const numbers = text.match(/\d+/g);
+                                        if (numbers && numbers.length >= 1) {
+                                            candidates.push({text: text, priority: 3});
+                                        }
+                                    }
+                                }
+                                
+                                // Sort by priority and return best match
+                                candidates.sort((a, b) => a.priority - b.priority);
+                                return candidates.length > 0 ? candidates[0].text : null;
+                            }
+                            return findAdultsChildren();
+                        """)
+                        
+                        if js_adults_children:
+                            booking['adults_children_infant'] = js_adults_children
+                            adults_children_found = True
+                            logger.info(f"Adults/Children/Infant found via enhanced JavaScript: {booking['adults_children_infant']}")
+                    except Exception as js_e:
+                        logger.warning(f"Enhanced JavaScript adults/children search failed: {str(js_e)}")
+                
+                # Strategy 3: Try original XPath as fallback
                 if not adults_children_found:
                     try:
                         adults_children_elem = driver.find_element(By.XPATH, "//*[@id='panel1a-content']/div/div/div[2]/div/div[8]/div/div[2]")
@@ -256,53 +346,37 @@ def fetch_folio_details(driver: webdriver.Chrome, wait: WebDriverWait, booking: 
                     except Exception:
                         pass
                 
-                # Strategy 3: Use JavaScript to search for numeric patterns
+                # Strategy 4: Search in page source for guest count patterns
                 if not adults_children_found:
                     try:
-                        js_adults_children = driver.execute_script("""
-                            function findAdultsChildren() {
-                                const walker = document.createTreeWalker(
-                                    document.getElementById('panel1a-content') || document.body,
-                                    NodeFilter.SHOW_TEXT,
-                                    null,
-                                    false
-                                );
-                                
-                                let node;
-                                const candidates = [];
-                                
-                                while (node = walker.nextNode()) {
-                                    const text = node.textContent.trim();
-                                    if (text && 
-                                        /\d+\/\d+\/\d+/.test(text) &&
-                                        !text.includes('Add') && 
-                                        !text.includes('View') && 
-                                        !text.includes('booking') &&
-                                        !text.includes('(0)') &&
-                                        text.length < 20) {
-                                        candidates.push(text);
-                                    }
-                                }
-                                
-                                return candidates.length > 0 ? candidates[0] : null;
-                            }
-                            return findAdultsChildren();
-                        """)
+                        page_text = driver.page_source
+                        # Look for patterns in the HTML
+                        guest_patterns = [
+                            r'"guests?"\s*:\s*"?(\d+/\d+/\d+)"?',
+                            r'"adults?"\s*:\s*"?(\d+)"?.*?"children"\s*:\s*"?(\d+)"?.*?"infants?"\s*:\s*"?(\d+)"?',
+                            r'(\d+)\s*Adult[s]?,?\s*(\d+)\s*Child[ren]*,?\s*(\d+)\s*Infant[s]?'
+                        ]
                         
-                        if js_adults_children:
-                            booking['adults_children_infant'] = js_adults_children
-                            adults_children_found = True
-                            logger.info(f"Adults/Children/Infant found via JavaScript: {booking['adults_children_infant']}")
-                    except Exception as js_e:
-                        logger.warning(f"JavaScript adults/children search failed: {str(js_e)}")
+                        for pattern in guest_patterns:
+                            match = re.search(pattern, page_text, re.IGNORECASE)
+                            if match:
+                                if len(match.groups()) == 1:
+                                    booking['adults_children_infant'] = match.group(1)
+                                else:
+                                    booking['adults_children_infant'] = '/'.join(match.groups())
+                                adults_children_found = True
+                                logger.info(f"Adults/Children/Infant found via page source: {booking['adults_children_infant']}")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Page source search failed: {str(e)}")
                 
                 if not adults_children_found:
-                    booking['adults_children_infant'] = 'N/A'
-                    logger.warning("Could not find Adults/Children/Infant using any method")
+                    booking['adults_children_infant'] = '1/0/0'  # Default to 1 adult instead of N/A
+                    logger.warning("Could not find Adults/Children/Infant using any method, defaulting to 1/0/0")
                     
             except Exception as e:
-                booking['adults_children_infant'] = 'N/A'
-                logger.warning(f"Error in adults/children extraction: {str(e)}")
+                booking['adults_children_infant'] = '1/0/0'  # Default to 1 adult instead of N/A
+                logger.warning(f"Error in adults/children extraction, defaulting to 1/0/0: {str(e)}")
 
             # Extract financial details
             try:
@@ -484,9 +558,19 @@ def match_patterns_on_page(driver: webdriver.Chrome, hotel_id: str) -> List[Dict
     return bookings
 
 def is_ota_booking(booking: Dict[str, str]) -> bool:
-    """Check if booking is from OTA."""
-    source = booking.get('booking_source', '').lower()
-    return any(ota.lower() in source for ota in OTA_SOURCES)
+    """Check if booking is from OTA with better error handling."""
+    source = booking.get('booking_source')
+    
+    # Handle None or empty source
+    if not source:
+        logger.warning(f"Booking source is None or empty for booking {booking.get('booking_id', 'unknown')}")
+        return False
+    
+    source_lower = source.lower()
+    is_ota = any(ota.lower() in source_lower for ota in OTA_SOURCES)
+    
+    logger.info(f"Booking {booking.get('booking_id', 'unknown')} source: '{source}', is_ota: {is_ota}")
+    return is_ota
 
 def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: str) -> List[Dict[str, str]]:
     """Login to Stayflexi and navigate to reservations."""
@@ -543,8 +627,20 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
         # Fetch all bookings using the improved logic
         all_bookings = fetch_and_display_bookings(driver, wait, hotel_id)
         
-        # Filter for OTA bookings
-        bookings = [b for b in all_bookings if is_ota_booking(b)]
+        # Filter for OTA bookings with improved error handling
+        bookings = []
+        for booking in all_bookings:
+            try:
+                if is_ota_booking(booking):
+                    bookings.append(booking)
+                    logger.info(f"Added OTA booking: {booking.get('booking_id')} from {booking.get('booking_source', 'unknown')}")
+                else:
+                    logger.info(f"Skipped non-OTA booking: {booking.get('booking_id')} from {booking.get('booking_source', 'unknown')}")
+            except Exception as e:
+                logger.error(f"Error filtering booking {booking.get('booking_id', 'unknown')}: {str(e)}")
+                # Include booking in results if filtering fails to avoid losing data
+                bookings.append(booking)
+        
         st.write(f"Fetched {len(bookings)} OTA bookings out of {len(all_bookings)} total bookings for {property_name}")
         logger.info(f"Fetched {len(bookings)} OTA bookings for {property_name}")
         
@@ -562,20 +658,36 @@ def login_to_stayflexi(chrome_profile_path: str, property_name: str, hotel_id: s
                 logger.warning(f"Failed to close WebDriver for {property_name}: {str(e)}")
 
 def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> None:
-    """Store OTA bookings in Supabase 'otabooking' table."""
+    """Store OTA bookings in Supabase 'otabooking' table with enhanced error handling."""
+    if not bookings:
+        st.warning(f"No bookings to store for {property_name}")
+        return
+        
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    stored_count = 0
+    skipped_count = 0
+    error_count = 0
+    
     for booking in bookings:
         if not booking.get('booking_id'):
             logger.warning(f"Skipping booking for {property_name} due to missing booking_id")
             st.warning(f"Skipping booking for {property_name}: No booking ID found")
+            skipped_count += 1
             continue
+            
         try:
+            # Ensure booking_source is not None
+            if not booking.get('booking_source'):
+                booking['booking_source'] = 'DIRECT'
+                logger.info(f"Set booking_source to DIRECT for booking {booking.get('booking_id')}")
+            
             # Check if this exact combination of booking_id, property, and room_number already exists
             existing_exact_booking = supabase.table("otabooking").select("*").eq("property", property_name).eq("booking_id", booking.get('booking_id')).eq("room_number", booking.get('room_number', 'N/A')).execute()
             
             if existing_exact_booking.data:
                 st.warning(f"Exact duplicate: Booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} already exists for {property_name}")
                 logger.info(f"Skipped exact duplicate booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
+                skipped_count += 1
                 continue
 
             # Check if there are other rooms for this booking_id (multi-room scenario)
@@ -591,21 +703,26 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
                 else:
                     st.warning(f"Room {current_room} already exists for booking {booking.get('booking_id')} at {property_name}")
                     logger.info(f"Skipped duplicate room {current_room} for booking {booking.get('booking_id')} at {property_name}")
+                    skipped_count += 1
                     continue
 
             # Additional guest-based duplicate check (for different booking IDs but same guest and room)
-            is_duplicate, existing_id = check_duplicate_guest(
-                supabase, "otabooking", 
-                booking.get('name', ''), 
-                booking.get('phone', ''), 
-                booking.get('room_number', '')
-            )
-            if is_duplicate and existing_id != booking.get('booking_id'):
-                st.warning(f"Guest duplicate: {booking.get('name')} already has booking {existing_id} for same room at {property_name}")
-                logger.info(f"Skipped guest duplicate: {booking.get('name')} already has booking {existing_id} for {property_name}")
-                continue
+            try:
+                is_duplicate, existing_id = check_duplicate_guest(
+                    supabase, "otabooking", 
+                    booking.get('name', ''), 
+                    booking.get('phone', ''), 
+                    booking.get('room_number', '')
+                )
+                if is_duplicate and existing_id != booking.get('booking_id'):
+                    st.warning(f"Guest duplicate: {booking.get('name')} already has booking {existing_id} for same room at {property_name}")
+                    logger.info(f"Skipped guest duplicate: {booking.get('name')} already has booking {existing_id} for {property_name}")
+                    skipped_count += 1
+                    continue
+            except Exception as guest_check_error:
+                logger.warning(f"Guest duplicate check failed for {booking.get('booking_id')}: {str(guest_check_error)}")
 
-            # Parse dates from booking_period
+            # Parse dates from booking_period with enhanced error handling
             check_in = ""
             check_out = ""
             if booking.get('booking_period'):
@@ -628,14 +745,14 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
                 "booking_date": datetime.now().date().isoformat(),  # Using report date as booking date
                 "booking_id": unique_booking_id,  # Use unique booking ID to avoid constraint violation
                 "original_booking_id": booking.get('booking_id'),  # Store original booking ID for reference
-                "booking_source": booking.get('booking_source', ''),
+                "booking_source": booking.get('booking_source', 'DIRECT'),  # Ensure not None
                 "guest_name": booking.get('name', ''),
                 "guest_phone": booking.get('phone', ''),
                 "check_in": check_in,
                 "check_out": check_out,
                 "total_with_taxes": safe_float(booking.get('total_with_taxes')),
                 "payment_made": safe_float(booking.get('payment_made')),
-                "adults_children_infant": booking.get('adults_children_infant', 'N/A'),
+                "adults_children_infant": booking.get('adults_children_infant', '1/0/0'),  # Default to 1/0/0
                 "room_number": booking.get('room_number', 'N/A'),
                 "total_without_taxes": safe_float(booking.get('total_without_taxes')),
                 "total_tax_amount": safe_float(booking.get('total_tax_amount')),
@@ -647,24 +764,41 @@ def store_in_supabase(bookings: List[Dict[str, str]], property_name: str) -> Non
             supabase.table("otabooking").insert(data).execute()
             st.success(f"Stored booking {booking.get('booking_id')} (room {booking.get('room_number', 'N/A')}) for {property_name}")
             logger.info(f"Stored booking {booking.get('booking_id')} room {booking.get('room_number', 'N/A')} for {property_name}")
+            stored_count += 1
             
         except Exception as e:
             # Handle the specific unique constraint violation
             if 'duplicate key value violates unique constraint' in str(e):
                 st.warning(f"Booking {booking.get('booking_id')} already exists in database for {property_name}")
                 logger.info(f"Skipped existing booking {booking.get('booking_id')} for {property_name}")
+                skipped_count += 1
             else:
                 st.error(f"Error storing booking {booking.get('booking_id', 'unknown')} for {property_name}: {str(e)}")
                 logger.error(f"Error storing booking for {property_name}: {str(e)}")
+                error_count += 1
+    
+    # Summary
+    st.info(f"Storage summary for {property_name}: {stored_count} stored, {skipped_count} skipped, {error_count} errors")
+    logger.info(f"Storage summary for {property_name}: {stored_count} stored, {skipped_count} skipped, {error_count} errors")
 
 def fetch_for_property(property_name: str, hotel_id: str) -> None:
-    """Fetch OTA bookings for a single property."""
-    bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
-    if bookings:
-        store_in_supabase(bookings, property_name)
-    else:
-        st.warning(f"No bookings fetched for {property_name} (ID: {hotel_id})")
-        logger.warning(f"No bookings fetched for {property_name}")
+    """Fetch OTA bookings for a single property with enhanced error handling."""
+    try:
+        st.info(f"Starting fetch for {property_name} (ID: {hotel_id})")
+        logger.info(f"Starting fetch for {property_name} (ID: {hotel_id})")
+        
+        bookings = login_to_stayflexi(CHROME_PROFILE_PATH, property_name, hotel_id)
+        
+        if bookings:
+            st.info(f"Retrieved {len(bookings)} bookings for {property_name}, proceeding to store in database...")
+            store_in_supabase(bookings, property_name)
+        else:
+            st.warning(f"No bookings fetched for {property_name} (ID: {hotel_id})")
+            logger.warning(f"No bookings fetched for {property_name}")
+            
+    except Exception as e:
+        st.error(f"Critical error during fetch for {property_name} (ID: {hotel_id}): {str(e)}")
+        logger.error(f"Critical error during fetch for {property_name}: {str(e)}")
 
 def show_online_reservations() -> None:
     """Streamlit UI for online reservations."""
@@ -675,16 +809,27 @@ def show_online_reservations() -> None:
         with st.spinner("Syncing all properties..."):
             progress_bar = st.progress(0)
             total = len(PROPERTIES)
+            success_count = 0
+            error_count = 0
+            
             for i, (name, id) in enumerate(PROPERTIES.items()):
                 try:
+                    st.write(f"Processing {i+1}/{total}: {name} (ID: {id})")
                     fetch_for_property(name, id)
+                    success_count += 1
                     progress_bar.progress((i + 1) / total)
                 except Exception as e:
                     st.error(f"Error syncing {name} (ID: {id}): {str(e)}")
                     logger.error(f"Error syncing {name}: {str(e)}")
-            st.success("All properties synced!")
-            logger.info("Completed syncing all properties")
+                    error_count += 1
+                    progress_bar.progress((i + 1) / total)
+                    
+            st.success(f"Sync completed! {success_count} successful, {error_count} errors")
+            logger.info(f"Completed syncing all properties: {success_count} successful, {error_count} errors")
 
+    st.markdown("---")
+    st.subheader("Individual Property Sync")
+    
     for name, id in PROPERTIES.items():
         col1, col2 = st.columns([4, 1])
         col1.write(f"Hotel: {name} (ID: {id})")
@@ -692,6 +837,10 @@ def show_online_reservations() -> None:
             with st.spinner(f"Syncing {name}..."):
                 try:
                     fetch_for_property(name, id)
+                    st.success(f"Successfully synced {name}")
                 except Exception as e:
                     st.error(f"Error syncing {name} (ID: {id}): {str(e)}")
                     logger.error(f"Error syncing {name}: {str(e)}")
+
+if __name__ == "__main__":
+    show_online_reservations()
